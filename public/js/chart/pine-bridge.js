@@ -212,6 +212,8 @@ function makeInterpreter({ bars, chart, feed, symbol, intervalLabel, timezone, i
   const partialSeries = new Map();
 
   const interp = new Interpreter(bars, {
+    // __meta_passthrough__ pass chart.meta (includes dividends) to Interpreter
+    meta: meta,
     symbol: {
       symbol: chart?.symbol || symbol || 'UNKNOWN',
       ticker: chart?.symbol || symbol || 'UNKNOWN',

@@ -467,6 +467,24 @@ if bar_index == 5
   assertClose(t.commission, expected, 0.01, 'default percent commission');
 });
 
+// __dividend_test__ request.dividends returns amount on ex-div bars, na elsewhere
+test('request.dividends returns dividend amount on ex-div bars', () => {
+  const mkBar = (t) => ({ t, o: 100, h: 101, l: 99, c: 100, v: 1000 });
+  const bars = [mkBar(1000), mkBar(2000), mkBar(3000), mkBar(4000), mkBar(5000)];
+  const dividends = [{ t: 3000, amount: 0.25 }];
+  const r = runPine(
+    `plot(request.dividends("X", dividends.net))`,
+    { bars, symbol: { symbol: 'X' }, meta: { dividends } }
+  );
+  assert(r.ok, r.error?.message);
+  const vals = r.outputs.plots[0].values;
+  assertEqual(vals[0], null, 'bar 0 no dividend');
+  assertEqual(vals[1], null, 'bar 1 no dividend');
+  assertClose(vals[2], 0.25, 1e-9, 'bar 2 dividend amount');
+  assertEqual(vals[3], null, 'bar 3 no dividend');
+  assertEqual(vals[4], null, 'bar 4 no dividend');
+});
+
 // __entry_leg_commission_test__ commission charged on both entry and exit
 test('strategy() commission is charged on entry AND exit', () => {
   const r = run(`

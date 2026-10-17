@@ -176,6 +176,10 @@ export class Interpreter {
     this.bars = bars;
     this.n = bars.length;
     this.symbol = opts.symbol || {};
+    // __dividend_plumbing__ dividend events from chart meta (via pine-bridge)
+    this.dividends = (opts.meta && Array.isArray(opts.meta.dividends))
+      ? opts.meta.dividends
+      : (Array.isArray(opts.dividends) ? opts.dividends : []);
     this.host = opts.host || {};
     this.inputOverrides = opts.inputs || {};
     this.timeframe = opts.timeframe || { period: '1D', multiplier: 1, isintraday: false };
@@ -1382,6 +1386,20 @@ export class Interpreter {
   // FIX E (bytecode VM): Helper methods used by the VM.
   // Aliases for the bytecode VM (which calls them by these names).
   equal(a, b) { return this.equals(a, b); }
+  /** __dividend_plumbing__ dividend amount for bar i (or null). */
+  dividendsAt(i) {
+    if (!this.dividends || !this.dividends.length) return null;
+    const bar = this.bars[i];
+    if (!bar) return null;
+    const next = this.bars[i + 1];
+    const lo = bar.t;
+    const hi = next ? next.t : bar.t + 86400000;
+    for (const d of this.dividends) {
+      if (d.t >= lo && d.t < hi) return d.amount;
+    }
+    return null;
+  }
+
   compare(a, b) {
     const ra = a instanceof Series ? a.values[this.bar] : a;
     const rb = b instanceof Series ? b.values[this.bar] : b;
@@ -1990,7 +2008,7 @@ export class Interpreter {
  * ------------------------------------------------------------------ */
 
 /** Namespaces whose members are values computed by the interpreter, not builtins. */
-const VALUE_NAMESPACES = new Set(['syminfo', 'timeframe', 'strategy', 'barstate', 'chart']);
+const VALUE_NAMESPACES = new Set(['syminfo', 'timeframe', 'strategy', 'barstate', 'chart', 'dividends']); // __dividend_plumbing__
 
 export function dottedPath(node) {  if (!node) return null;
   if (node.type === NT.IDENT) return node.name;

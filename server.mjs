@@ -189,6 +189,19 @@ function mapChart(json) {
     marketState: meta.marketState || '',
     hasPrePost: !!meta.hasPrePostMarketData,
     bars,
+    // __dividends_extracted__ extract dividend events for Pine request.dividends
+    dividends: (() => {
+      const ev = result.events?.dividends;
+      if (!ev) return [];
+      const out = [];
+      for (const [tsStr, e] of Object.entries(ev)) {
+        const t = Number(tsStr) * 1000;
+        const amount = Number(e.amount);
+        if (Number.isFinite(t) && Number.isFinite(amount)) out.push({ t, amount });
+      }
+      out.sort((a, b) => a.t - b.t);
+      return out;
+    })(),
   };
 }
 

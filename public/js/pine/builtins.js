@@ -2373,7 +2373,11 @@ def('request.currency_rate', (c) => {
   return from === to ? 1 : NaN;
 });
 
-def('request.dividends', () => NaN);
+// __real_dividends__ returns dividend amount on ex-div bar, na otherwise
+def('request.dividends', (c) => c.interp.dividendsAt(c.bar));
+// __real_dividends__ field constants
+def('dividends.net',   () => 'net');
+def('dividends.gross', () => 'gross');
 def('request.splits', () => NaN);
 def('request.earnings', () => NaN);
 def('request.quandl', () => NaN);
