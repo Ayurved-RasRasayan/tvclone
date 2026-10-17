@@ -1,4 +1,4 @@
-node_modules/
+﻿node_modules/
 *.bak
 *.bak.*
 *.orig
@@ -18,3 +18,7 @@ node_modules/
 *.lintest
 *.20261016-*.bak
 .DS_Store
+
+# Cloud alerts (contains webhook URLs with secrets)
+alerts.json
+alerts.json.tmp

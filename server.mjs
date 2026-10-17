@@ -673,6 +673,37 @@ function json(res, status, payload) {
   res.end(body);
 }
 
+// __cloud_alerts_backend__ server-side cloud alerts
+import { loadAlerts as _cloudLoadAlerts, saveAlerts as _cloudSaveAlerts, startAlertWorker as _cloudStartWorker, deliverWebhook as _cloudDeliverWebhook } from './alert-worker.mjs';
+
+function readJsonBody(req, maxBytes = 1_000_000) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    let tooLarge = false;
+    req.on('data', (chunk) => {
+      if (tooLarge) return;
+      body += chunk;
+      if (body.length > maxBytes) { tooLarge = true; reject(new Error('body too large')); }
+    });
+    req.on('end', () => {
+      if (tooLarge) return;
+      try { resolve(body ? JSON.parse(body) : {}); }
+      catch (e) { reject(new Error('invalid JSON: ' + e.message)); }
+    });
+    req.on('error', reject);
+  });
+}
+
+function redactWebhook(url) {
+  if (!url || typeof url !== 'string') return '';
+  if (url.length <= 12) return '***';
+  return '***' + url.slice(-8);
+}
+
+function makeAlertId() {
+  return 'ca_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const p = url.pathname;
@@ -681,11 +712,13 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Headers': '*',
-      'Access-Control-Allow-Methods': 'GET,OPTIONS',
+      'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
     });
     return res.end();
   }
-  if (req.method !== 'GET' && req.method !== 'HEAD') {
+  const _isCloudAlertsPath = p === '/api/cloud-alerts' || p.startsWith('/api/cloud-alerts/');
+  const _isWriteMethod = req.method === 'POST' || req.method === 'DELETE';
+  if (req.method !== 'GET' && req.method !== 'HEAD' && !(_isWriteMethod && _isCloudAlertsPath)) {
     return json(res, 405, { error: 'Method not allowed' });
   }
 
@@ -696,6 +729,69 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/spark') return json(res, 200, await handleSpark(url));
     if (p === '/api/news') return json(res, 200, await handleNews(url));
     if (p === '/api/health') return json(res, 200, { ok: true, ts: Date.now() });
+
+    // __cloud_alerts_backend__ routes
+    if (p === '/api/cloud-alerts') {
+      if (req.method === 'POST') {
+        const body = await readJsonBody(req);
+        if (!body.symbol || !body.scriptSource || !body.webhookUrl) {
+          return json(res, 400, { error: 'symbol, scriptSource, webhookUrl are required' });
+        }
+        const entry = {
+          id: makeAlertId(),
+          createdAt: Date.now(),
+          enabled: true,
+          name: String(body.name || body.symbol + ' alert'),
+          symbol: String(body.symbol).toUpperCase(),
+          interval: String(body.interval || '1d'),
+          range: String(body.range || '1y'),
+          scriptSource: String(body.scriptSource),
+          webhookUrl: String(body.webhookUrl),
+          lastFiredBar: -1,
+          lastFiredAt: null,
+          lastErrorMessage: null,
+        };
+        const alerts = _cloudLoadAlerts();
+        alerts.push(entry);
+        _cloudSaveAlerts(alerts);
+        return json(res, 201, { ...entry, webhookUrl: redactWebhook(entry.webhookUrl) });
+      }
+      if (req.method === 'GET') {
+        const alerts = _cloudLoadAlerts().map((a) => ({ ...a, webhookUrl: redactWebhook(a.webhookUrl) }));
+        return json(res, 200, alerts);
+      }
+    }
+
+    const _alertIdMatch = p.match(/^\/api\/cloud-alerts\/([a-zA-Z0-9_]+)$/);
+    if (_alertIdMatch && req.method === 'DELETE') {
+      const id = _alertIdMatch[1];
+      const alerts = _cloudLoadAlerts();
+      const idx = alerts.findIndex((a) => a.id === id);
+      if (idx < 0) return json(res, 404, { error: 'alert not found' });
+      alerts.splice(idx, 1);
+      _cloudSaveAlerts(alerts);
+      return json(res, 200, { removed: true, id });
+    }
+
+    const _testMatch = p.match(/^\/api\/cloud-alerts\/([a-zA-Z0-9_]+)\/test$/);
+    if (_testMatch && req.method === 'POST') {
+      const id = _testMatch[1];
+      const alerts = _cloudLoadAlerts();
+      const alert = alerts.find((a) => a.id === id);
+      if (!alert) return json(res, 404, { error: 'alert not found' });
+      try {
+        const event = {
+          id: alert.id, name: alert.name, symbol: alert.symbol,
+          message: 'TEST message from tvclone cloud alerts',
+          price: null, bar: -1, time: Date.now(),
+        };
+        await _cloudDeliverWebhook(alert, event);
+        return json(res, 200, { ok: true, delivered: true });
+      } catch (e) {
+        return json(res, 502, { ok: false, error: e.message });
+      }
+    }
+
     if (p.startsWith('/api/')) return json(res, 404, { error: `Unknown endpoint ${p}` });
     return serveStatic(req, res, p);
   } catch (err) {
@@ -704,6 +800,10 @@ const server = http.createServer(async (req, res) => {
     return json(res, status, { error: err.message, detail: err.body });
   }
 });
+
+// __cloud_alerts_backend__ start polling worker (60s default)
+_cloudStartWorker({ handleChart });
+
 
 server.listen(PORT, HOST, () => {
   console.log(`tvclone running at http://${HOST}:${PORT}`);

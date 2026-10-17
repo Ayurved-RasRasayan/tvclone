@@ -17,6 +17,7 @@ const SUITES = [
   { name: 'chart engine', file: 'test/chart.test.mjs' },
   { name: 'application', file: 'test/app.test.mjs' },
   { name: 'live data', file: 'test/live.test.mjs' },
+  { name: 'cloud alerts', file: 'test/cloud-alerts.test.mjs' },
 ];
 
 function run(file) {
