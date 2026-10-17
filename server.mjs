@@ -75,6 +75,106 @@ async function yahooJson(pathAndQuery, { timeoutMs = 15000 } = {}) {
     : new HttpError(502, `Upstream fetch failed: ${lastErr?.message || 'unknown'}`);
 }
 
+// __crumb_auth__ Yahoo quoteSummary requires cookie + crumb. The chart endpoint
+// does NOT, so we keep yahooJson unchanged and add a parallel helper.
+let _crumbAuth = null;
+let _crumbExpiry = 0;
+
+async function getCrumbAuth() {
+  if (_crumbAuth && Date.now() < _crumbExpiry) return _crumbAuth;
+
+  // Step 1: obtain session cookie (fc.yahoo.com returns 404 but sets a cookie)
+  let cookieHeader = '';
+  const ac1 = new AbortController();
+  const t1 = setTimeout(() => ac1.abort(), 10000);
+  try {
+    const r = await fetch('https://fc.yahoo.com/', {
+      headers: { 'User-Agent': UA },
+      redirect: 'manual',
+      signal: ac1.signal,
+    });
+    const setCookies = typeof r.headers.getSetCookie === 'function' ? r.headers.getSetCookie() : [];
+    const lines = setCookies.length ? setCookies : (r.headers.get('set-cookie') ? [r.headers.get('set-cookie')] : []);
+    if (lines.length > 0) {
+      cookieHeader = lines.map((c) => c.split(';')[0]).join('; ');
+    }
+  } catch {
+    // ignore
+  } finally {
+    clearTimeout(t1);
+  }
+
+  // Step 2: exchange cookie for crumb
+  let crumb = '';
+  if (cookieHeader) {
+    const ac2 = new AbortController();
+    const t2 = setTimeout(() => ac2.abort(), 10000);
+    try {
+      const r = await fetch('https://query1.finance.yahoo.com/v1/test/getcrumb', {
+        headers: { 'User-Agent': UA, Cookie: cookieHeader },
+        signal: ac2.signal,
+      });
+      const text = await r.text();
+      if (r.status === 200 && text.length > 0 && text.length < 30) {
+        crumb = text;
+      }
+    } catch {
+      // ignore
+    } finally {
+      clearTimeout(t2);
+    }
+  }
+
+  if (!cookieHeader || !crumb) {
+    throw new HttpError(502, 'Yahoo crumb auth unavailable');
+  }
+
+  _crumbAuth = { cookie: cookieHeader, crumb };
+  _crumbExpiry = Date.now() + 60 * 60 * 1000; // 1 hour
+  return _crumbAuth;
+}
+
+async function yahooJsonWithCrumb(pathAndQuery, { timeoutMs = 15000 } = {}) {
+  try {
+    return await _yahooJsonWithCrumb(pathAndQuery, timeoutMs);
+  } catch (e) {
+    if (e.status === 401 || e.status === 403) {
+      // Crumb likely expired  invalidate and retry once
+      _crumbAuth = null;
+      _crumbExpiry = 0;
+      return await _yahooJsonWithCrumb(pathAndQuery, timeoutMs);
+    }
+    throw e;
+  }
+}
+
+async function _yahooJsonWithCrumb(pathAndQuery, timeoutMs) {
+  const auth = await getCrumbAuth();
+  const sep = pathAndQuery.includes('?') ? '&' : '?';
+  const url = `https://query1.finance.yahoo.com${pathAndQuery}${sep}crumb=${encodeURIComponent(auth.crumb)}`;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      signal: ac.signal,
+      headers: {
+        'User-Agent': UA,
+        Accept: 'application/json,text/plain,*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        Cookie: auth.cookie,
+        Referer: 'https://finance.yahoo.com/',
+      },
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new HttpError(res.status, `Yahoo responded ${res.status}`, text.slice(0, 500));
+    }
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /* ------------------------------------------------------------------ *
  * Cache
  * ------------------------------------------------------------------ */
@@ -228,6 +328,16 @@ function mapChart(json) {
 // __earnings_fetched__ convert Yahoo quarter string to approximate report date
 function quarterToReportDate(q) {
   if (!q) return null;
+  // Modern Yahoo returns the quarter as a Unix timestamp in seconds
+  // (quarter-end date). Add ~21 days to approximate the report date.
+  const n = Number(q);
+  if (Number.isFinite(n) && n > 1e8 && n < 1e10) {
+    return n * 1000 + 21 * 86400000;
+  }
+  if (Number.isFinite(n) && n >= 1e12 && n < 1e13) {
+    return n + 21 * 86400000;
+  }
+  // Legacy string forms (e.g. "1Q2024", "2024-Q1")
   const s = String(q).trim();
   let year = null;
   let quarter = null;
@@ -245,7 +355,7 @@ function quarterToReportDate(q) {
 
 async function fetchEarnings(symbol) {
   const path = '/v10/finance/quoteSummary/' + encodeURIComponent(symbol) + '?modules=earningsHistory';
-  const json = await yahooJson(path);
+  const json = await yahooJsonWithCrumb(path);
   const hist = json?.quoteSummary?.result?.[0]?.earningsHistory?.history || [];
   const out = [];
   for (const h of hist) {
@@ -260,7 +370,8 @@ async function fetchEarnings(symbol) {
       t,
       actual: Number(actualRaw),
       estimate: Number.isFinite(Number(estimateRaw)) ? Number(estimateRaw) : null,
-      surprisePct: Number.isFinite(Number(surpriseRaw)) ? Number(surpriseRaw) : null,
+      // Yahoo returns surprisePercent as decimal (0.0452); Pine expects percent (4.52)
+      surprisePct: Number.isFinite(Number(surpriseRaw)) ? Number(surpriseRaw) * 100 : null,
       quarter: String(qRaw || ''),
     });
   }
