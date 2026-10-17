@@ -1609,8 +1609,11 @@ export class Chart {
 
     switch (d.type) {
       case 'trendline':
+      case 'arrow':
+      case 'extended':
       case 'ray':
-      case 'hline': {
+      case 'hline':
+      case 'vline': {
         let x1 = X(d.x1);
         let y1 = Y(d.y1);
         let x2 = X(d.x2 ?? d.x1);
@@ -1621,7 +1624,7 @@ export class Chart {
           ctx.lineTo(this.plotWidth, y1);
           ctx.stroke();
         } else {
-          const ext = d.type === 'ray' ? 'both' : d.extend || 'none';
+          const ext = (d.type === 'ray' || d.type === 'extended') ? 'both' : d.extend || 'none';
           const [ax, ay, bx, by] = extendLine(x1, y1, x2, y2, ext, this.plotWidth, pane);
           ctx.beginPath();
           ctx.moveTo(ax, ay);
@@ -1632,7 +1635,19 @@ export class Chart {
           drawHandle(ctx, x1, y1, color);
           if (d.type !== 'hline') drawHandle(ctx, x2, y2, color);
         }
-        break;
+        
+        // __new_drawing_types__ arrowhead drawing (added)
+        if (d.type === 'arrow') {
+          const ang = Math.atan2(by - ay, bx - ax);
+          const head = 9;
+          ctx.beginPath();
+          ctx.moveTo(bx, by);
+          ctx.lineTo(bx - head * Math.cos(ang - Math.PI / 6), by - head * Math.sin(ang - Math.PI / 6));
+          ctx.moveTo(bx, by);
+          ctx.lineTo(bx - head * Math.cos(ang + Math.PI / 6), by - head * Math.sin(ang + Math.PI / 6));
+          ctx.stroke();
+        }
+      break;
       }
       case 'rect': {
         const x1 = X(d.x1);
@@ -2409,7 +2424,7 @@ export class Chart {
         if (Math.abs(Y(d.y1) - y) < tol) return { kind: 'drawing', drawing: d, handle: 'p1' };
         continue;
       }
-      if (['trendline', 'ray', 'rect', 'fib', 'measure'].includes(d.type)) {
+      if (['trendline', 'arrow', 'extended', 'ray', 'rect', 'fib', 'measure'].includes(d.type)) {
         if (Math.hypot(X(d.x1) - x, Y(d.y1) - y) < tol) return { kind: 'drawing', drawing: d, handle: 'p1' };
         if (Math.hypot(X(d.x2) - x, Y(d.y2) - y) < tol) return { kind: 'drawing', drawing: d, handle: 'p2' };
       }

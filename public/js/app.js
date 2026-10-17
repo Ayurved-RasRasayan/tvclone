@@ -2991,7 +2991,7 @@ class App {
           break;
         default: {
           // Drawing tool shortcuts
-          const map = { t: 'trendline', h: 'hline', r2: 'rect', f: 'fib', x: 'text', m: 'measure' };
+          const map = { t: 'trendline', a: 'arrow', e: 'extended', v: 'vline', h: 'hline', r2: 'rect', f: 'fib', x: 'text', m: 'measure' };
           const key = e.key.toLowerCase();
           if (map[key] && key !== 'r') this.onRailClick(map[key]);
           break;
