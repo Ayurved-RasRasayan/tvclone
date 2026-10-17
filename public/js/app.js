@@ -8,6 +8,7 @@ import { feed, INTERVALS, RANGES, intervalInfo, rangeForBars, formatCompact, for
 import { Chart } from './chart/chart.js';
 import { THEME } from './chart/scale.js';
 import { createPineIndicator, clearSecurityCache } from './chart/pine-bridge.js';
+import { resolveSourceBars, listAvailableSources } from './chart/source-resolver.js'; // __source_resolver__
 import { DEFAULT_INDICATOR_SOURCE, DEFAULT_INDICATOR_NAME } from './pine/default-scripts.js';
 import { AlertManager, openAlertDialog, renderAlertsPanel } from './alerts.js';
 import { PineEditor, renderScriptLibrary, openTemplatesModal, TEMPLATES } from './editor2.js';
@@ -1595,7 +1596,24 @@ class App {
 
   addBuiltinIndicator(pane, def, params = null) {
     const resolved = params || Object.fromEntries(def.params.map((p) => [p.key, p.def]));
-    const compute = makeBuiltinCompute(def.key, resolved);
+    const _baseCompute = makeBuiltinCompute(def.key, resolved);
+  // __source_resolver__: allow this indicator to consume another indicator's plot
+  let _sourceSpec = resolved.__source;
+  if (!_sourceSpec && !params && pane && pane.chart && Array.isArray(pane.chart.indicators) && pane.chart.indicators.length > 0) {
+    const _avail = listAvailableSources(pane.chart).filter((s) => s.value !== 'close');
+    if (_avail.length > 0 && typeof prompt === 'function') {
+      const _pick = prompt(
+        'Source for ' + (def.name || def.key) + ':\n0 = close (default)\n' +
+          _avail.map((s, i) => (i + 1) + '. ' + s.label).join('\n'),
+        '0'
+      );
+      if (_pick && _pick !== '0') {
+        const _idx = parseInt(_pick, 10) - 1;
+        if (_idx >= 0 && _idx < _avail.length) _sourceSpec = _avail[_idx].value;
+      }
+    }
+  }
+  const compute = (bars, chart) => _baseCompute(resolveSourceBars(chart, bars, _sourceSpec), chart);
     const ind = pane.chart.addIndicator({
       key: `${def.key}:${JSON.stringify(resolved)}`,
       name: `${def.name.replace(/ \(.*\)/, '')}${def.params.length ? `(${Object.values(resolved).join(',')})` : ''}`,
