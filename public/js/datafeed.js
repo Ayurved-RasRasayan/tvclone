@@ -18,6 +18,8 @@ export const INTERVALS = [
   { id: '5d', label: '5D', seconds: 432000, intraday: false },
   { id: '1wk', label: '1W', seconds: 604800, intraday: false },
   { id: '1mo', label: '1M', seconds: 2592000, intraday: false },
+  { id: '3mo', label: '3mo', seconds: 7776000, intraday: false },
+  { id: '__custom__', label: 'Custom...', seconds: 86400, intraday: false },
 ];
 
 export const RANGES = [
@@ -374,3 +376,27 @@ export function aggregateBars(bars, targetSeconds, sourceSeconds) {
   void factor;
   return out;
 }
+
+/**
+ * Parse a user-entered timeframe string into a supported interval id.
+ * Only accepts intervals Yahoo Finance natively supports -- unsupported
+ * intervals (e.g. 4h, 2h, 45m) would require bar resampling (Phase 2).
+ * @returns {{ok:true, id:string} | {ok:false, error:string}}
+ */
+export function parseCustomTimeframe(input) {
+  const s = String(input || '').trim().toLowerCase();
+  if (!s) return { ok: false, error: 'Empty timeframe' };
+  const ALIASES = {
+    '1m': '1m', '2m': '2m', '5m': '5m', '15m': '15m', '30m': '30m',
+    '60m': '60m', '90m': '90m', '1h': '60m',
+    '1d': '1d', 'd': '1d', '5d': '5d', '1w': '1wk', 'w': '1wk',
+    '1mo': '1mo', 'mo': '1mo', '3mo': '3mo',
+  };
+  const id = ALIASES[s];
+  if (id) return { ok: true, id };
+  return {
+    ok: false,
+    error: "'" + s + "' is not supported by Yahoo Finance. Try: 1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1w, 1mo, 3mo.",
+  };
+}
+

@@ -4,7 +4,7 @@
  * Wires together the datafeed, the chart engine, the Pine Script engine,
  * the alert manager and all of the surrounding UI.
  */
-import { feed, INTERVALS, RANGES, intervalInfo, rangeForBars, formatCompact, formatTime, formatDateMedium } from './datafeed.js';
+import { feed, INTERVALS, RANGES, intervalInfo, rangeForBars, formatCompact, formatTime, formatDateMedium, parseCustomTimeframe } from './datafeed.js';
 import { Chart } from './chart/chart.js';
 import { THEME } from './chart/scale.js';
 import { createPineIndicator, clearSecurityCache } from './chart/pine-bridge.js';
@@ -610,6 +610,14 @@ class App {
 
   setInterval(interval) {
     if (!this.activePane) return;
+    if (interval === '__custom__') {
+      const current = this.activePane.chart.interval || '1d';
+      const input = prompt('Enter timeframe (e.g. 15m, 90m, 1h, 1d, 1w, 1mo, 3mo):', current);
+      if (!input) return;
+      const parsed = parseCustomTimeframe(input);
+      if (!parsed.ok) { alert(parsed.error); return; }
+      interval = parsed.id;
+    }
     this.activePane.setInterval(interval).then(() => this.renderToolbarState());
     this.renderToolbarState();
   }
