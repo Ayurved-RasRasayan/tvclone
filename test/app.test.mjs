@@ -496,6 +496,45 @@ test('CHART_TYPES includes all 5 price-driven types', async () => {
   }
 });
 
+// __layout_css_guard_test__
+test('every LAYOUTS entry has a matching CSS grid rule', async () => {
+  const fs = await import('node:fs');
+  const appSrc = fs.readFileSync(new URL('../public/js/app.js', import.meta.url), 'utf8');
+  const cssSrc = fs.readFileSync(new URL('../public/css/app.css', import.meta.url), 'utf8');
+
+  const start = appSrc.indexOf('const LAYOUTS = [');
+  if (start < 0) throw new Error('LAYOUTS declaration not found in app.js');
+  let depth = 0, end = -1;
+  for (let i = start; i < appSrc.length; i++) {
+    if (appSrc[i] === '[') depth++;
+    else if (appSrc[i] === ']') {
+      depth--;
+      if (depth === 0) { end = i; break; }
+    }
+  }
+  if (end < 0) throw new Error('LAYOUTS close bracket not found');
+
+  const block = appSrc.slice(start, end + 1);
+  const ids = [...block.matchAll(/id: '([^']+)'/g)].map(m => m[1]);
+  if (ids.length === 0) throw new Error('no layout ids extracted from LAYOUTS block');
+
+  const missing = [];
+  for (const id of ids) {
+    const singleQuote = "[data-layout='" + id + "']";
+    const doubleQuote = '[data-layout="' + id + '"]';
+    if (!cssSrc.includes(singleQuote) && !cssSrc.includes(doubleQuote)) {
+      missing.push(id);
+    }
+  }
+  if (missing.length) {
+    throw new Error('layouts with no CSS rule (would stack in top-left): ' + missing.join(', '));
+  }
+
+  const counts = [...block.matchAll(/count: (\d+)/g)].map(m => parseInt(m[1], 10));
+  const max = Math.max(...counts);
+  if (max < 8) throw new Error('max pane count is ' + max + ', TradingView parity target is 8');
+});
+
 test('state round-trips through serialisation', () => {
   const saved = JSON.parse(JSON.stringify(app.state));
   assert(saved.panes.length >= 1, 'panes serialised');
