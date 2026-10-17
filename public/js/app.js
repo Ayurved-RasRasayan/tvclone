@@ -26,6 +26,13 @@ const CHART_TYPES = [
   { id: 'line', label: 'Line', icon: 'line' },
   { id: 'area', label: 'Area', icon: 'area' },
   { id: 'baseline', label: 'Baseline', icon: 'line' },
+
+  // __chart_types_price_driven__ price-driven chart types (TradingView parity)
+  { id: 'renko', label: 'Renko', icon: 'candle' },
+  { id: 'range', label: 'Range', icon: 'bars' },
+  { id: 'linebreak', label: 'Line Break', icon: 'line' },
+  { id: 'kagi', label: 'Kagi', icon: 'line' },
+  { id: 'pnf', label: 'Point & Figure', icon: 'bars' },
 ];
 
 /**

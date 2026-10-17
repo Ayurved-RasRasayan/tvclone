@@ -464,7 +464,39 @@ await test('pine editor surfaces compile errors with a line number', () => {
   assertEqual(editor.errors.children.length, 1, 'success message shown');
 });
 
-await test('state round-trips through serialisation', () => {
+await // __chart_types_test__
+test('CHART_TYPES includes all 5 price-driven types', async () => {
+  // Self-contained: no top-level imports required from this test file.
+  const fs = await import('node:fs');
+  const appSrc = fs.readFileSync(new URL('../public/js/app.js', import.meta.url), 'utf8');
+  const start = appSrc.indexOf('const CHART_TYPES = [');
+  if (start < 0) throw new Error('CHART_TYPES declaration not found');
+  let depth = 0;
+  let end = -1;
+  for (let i = start; i < appSrc.length; i++) {
+    if (appSrc[i] === '[') depth++;
+    else if (appSrc[i] === ']') {
+      depth--;
+      if (depth === 0) { end = i; break; }
+    }
+  }
+  if (end < 0) throw new Error('CHART_TYPES close bracket not found');
+  const block = appSrc.slice(start, end + 1);
+  // New types must be present
+  for (const id of ['renko', 'range', 'linebreak', 'kagi', 'pnf']) {
+    if (!block.includes("id: '" + id + "'")) {
+      throw new Error(id + ' missing from CHART_TYPES');
+    }
+  }
+  // Existing types must still be present (catches accidental clobbers)
+  for (const id of ['candles', 'hollow', 'bars', 'line', 'area', 'baseline']) {
+    if (!block.includes("id: '" + id + "'")) {
+      throw new Error(id + ' no longer in CHART_TYPES');
+    }
+  }
+});
+
+test('state round-trips through serialisation', () => {
   const saved = JSON.parse(JSON.stringify(app.state));
   assert(saved.panes.length >= 1, 'panes serialised');
   assert(saved.watchlist.length > 0, 'watchlist serialised');
