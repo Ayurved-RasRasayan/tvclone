@@ -2343,7 +2343,13 @@ def('request.security', (c) => {
   const lookahead = named.lookahead ?? barmergeLookahead.lookahead_off;
   void gaps;
   void lookahead;
-  return c.interp.requestSymbol(symbol, timeframe, expression);
+  const result = c.interp.requestSymbol(symbol, timeframe, expression);
+  // Host may return a series-like ({values, isSeries, length}); extract the
+  // value at the current bar. Otherwise return as-is (scalar).
+  if (result && result.isSeries && Array.isArray(result.values)) {
+    return result.values[c.bar];
+  }
+  return result;
 });
 
 def('request.security_lower_tf', (c) => {
