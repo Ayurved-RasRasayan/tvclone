@@ -574,6 +574,32 @@ if bar_index == 5
   assertClose(t.commission, expectedTotalComm, 0.01, 'commission (entry+exit)');
 });
 
+// __highest_lowest_warmup_test__
+test('ta.highest returns partial-window max during warmup (Pine v6 semantics)', () => {
+  const r = run(`plot(ta.highest(high, 3))`);
+  const v = r.outputs.plots[0].values;
+  // Pine spec: 'na values in the source series are ignored'  so bar 0 returns
+  // high[0], bar 1 returns max(high[0], high[1]), etc. Contrast with ta.sma
+  // which needs a full window and returns null during warmup.
+  for (let i = 0; i < 8; i++) {
+    const start = Math.max(0, i - 2);
+    let expected = -Infinity;
+    for (let k = start; k <= i; k++) expected = Math.max(expected, BARS[k].h);
+    assertClose(v[i], expected, 1e-9, 'bar ' + i);
+  }
+});
+
+test('ta.lowest returns partial-window min during warmup (Pine v6 semantics)', () => {
+  const r = run(`plot(ta.lowest(low, 3))`);
+  const v = r.outputs.plots[0].values;
+  for (let i = 0; i < 8; i++) {
+    const start = Math.max(0, i - 2);
+    let expected = Infinity;
+    for (let k = start; k <= i; k++) expected = Math.min(expected, BARS[k].l);
+    assertClose(v[i], expected, 1e-9, 'bar ' + i);
+  }
+});
+
 test('drawing objects: line, label, box', () => {
   const r = run(`
 if bar_index == 3
