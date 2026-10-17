@@ -11,6 +11,7 @@ import { createPineIndicator, clearSecurityCache } from './chart/pine-bridge.js'
 import { resolveSourceBars, listAvailableSources } from './chart/source-resolver.js'; // __source_resolver__
 import { DEFAULT_INDICATOR_SOURCE, DEFAULT_INDICATOR_NAME } from './pine/default-scripts.js';
 import { AlertManager, openAlertDialog, renderAlertsPanel } from './alerts.js';
+import { renderCloudAlertsPanel, openCloudAlertsManager } from './cloud-alerts.js'; // __cloud_alerts_ui__
 import { PineEditor, renderScriptLibrary, openTemplatesModal, TEMPLATES } from './editor2.js';
 import { computeStats, renderStrategyPane } from './strategy-tester.js';
 import { $, $$, el, icon, toast, store, openModal, showContextMenu, hideContextMenu, debounce, throttle, beep, download, escapeHtml } from './ui.js';
@@ -2257,6 +2258,11 @@ class App {
     renderAlertsPanel(panel, this.alertManager, {
       onSelect: (a) => this.setSymbol(a.symbol),
       onCreate: () => this.createAlert(),
+    });
+    // __cloud_alerts_ui__ cloud alerts section
+    renderCloudAlertsPanel(panel, {
+      app: this,
+      onChange: () => this.renderAlerts(),
     });
   }
 

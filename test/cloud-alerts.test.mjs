@@ -54,6 +54,28 @@ function mockFetchCapture() {
 
 /* -------------------- deliverWebhook -------------------- */
 
+// __ui_exports_test__
+test('cloud-alerts.js exports renderCloudAlertsPanel + openCloudAlertsManager', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../public/js/cloud-alerts.js', import.meta.url), 'utf8');
+  if (!/export\s+async\s+function\s+renderCloudAlertsPanel\s*\(/.test(src)) {
+    throw new Error('renderCloudAlertsPanel not exported');
+  }
+  if (!/export\s+function\s+openCloudAlertsManager\s*\(/.test(src)) {
+    throw new Error('openCloudAlertsManager not exported');
+  }
+  if (!src.includes('listCloudAlerts')) throw new Error('missing listCloudAlerts');
+  if (!src.includes('deleteCloudAlert')) throw new Error('missing deleteCloudAlert');
+  if (!src.includes('testCloudAlert')) throw new Error('missing testCloudAlert');
+});
+
+test('app.js wires renderCloudAlertsPanel into renderAlerts()', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../public/js/app.js', import.meta.url), 'utf8');
+  if (!src.includes("from './cloud-alerts.js'")) throw new Error('missing import');
+  if (!src.includes('renderCloudAlertsPanel(panel,')) throw new Error('renderAlerts should call renderCloudAlertsPanel');
+});
+
 test('deliverWebhook: POST mode for plain URL', async () => {
   const fetchImpl = mockFetchCapture();
   await deliverWebhook(

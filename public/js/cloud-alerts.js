@@ -160,3 +160,207 @@ if close > ta.sma(close, 20)
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
 }
+
+
+// __cloud_alerts_ui__ best-effort style application.
+// Real browsers accept style.cssText; the test DOM shim's Style class has
+// cssText as getter-only. Catch per-op so shim tests survive.
+function _safeStyle(el, cssText) {
+  if (!el || !el.style) return;
+  try { el.style.cssText = cssText; } catch { /* shim limitation */ }
+}
+
+export async function renderCloudAlertsPanel(container, { app, onChange } = {}) {
+  if (!container) return;
+  try {
+    const existing = container.querySelector('.cloud-alerts-section');
+    if (existing) existing.remove();
+
+    const section = document.createElement('div');
+    section.className = 'cloud-alerts-section';
+    _safeStyle(section, 'margin-top:12px;padding-top:12px;border-top:1px solid #2a2e39');
+
+    const header = document.createElement('div');
+    header.className = 'watchlist-head';
+    _safeStyle(header, 'display:flex;align-items:center;gap:8px;margin-bottom:6px');
+    const title = document.createElement('span');
+    title.textContent = 'Cloud alerts';
+    _safeStyle(title, 'font-size:12px;color:#787b86;font-weight:600');
+    header.appendChild(title);
+    const spacer = document.createElement('span');
+    _safeStyle(spacer, 'flex:1');
+    header.appendChild(spacer);
+    const newBtn = document.createElement('button');
+    newBtn.className = 'btn sm';
+    newBtn.textContent = '+ New';
+    newBtn.title = 'Create a cloud alert (fires with browser closed)';
+    newBtn.onclick = () => {
+      openCloudAlertDialog({
+        app,
+        onSaved: () => {
+          if (onChange) onChange();
+          else renderCloudAlertsPanel(container, { app, onChange });
+        },
+      });
+    };
+    header.appendChild(newBtn);
+    section.appendChild(header);
+
+    const listEl = document.createElement('div');
+    listEl.className = 'cloud-alerts-list';
+    section.appendChild(listEl);
+    container.appendChild(section);
+
+    let alerts = [];
+    let loadError = null;
+    try { alerts = await listCloudAlerts(); } catch (e) { loadError = e.message; }
+
+    if (loadError) {
+      const err = document.createElement('div');
+      err.className = 'empty-note';
+      _safeStyle(err, 'color:#ef5350;font-size:11px;padding:4px');
+      err.textContent = 'Cloud alerts unavailable: ' + loadError;
+      listEl.appendChild(err);
+      return;
+    }
+
+    if (!Array.isArray(alerts) || alerts.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-note';
+      _safeStyle(empty, 'font-size:11px;padding:4px;color:#787b86');
+      empty.textContent = 'No cloud alerts. Click "+ New" to create one.';
+      listEl.appendChild(empty);
+      return;
+    }
+
+    for (const a of alerts) {
+      const item = document.createElement('div');
+      item.className = 'alert-item';
+      _safeStyle(item, 'padding:6px 8px;font-size:12px;border-bottom:1px solid #2a2e39;display:flex;gap:6px;align-items:center');
+
+      const main = document.createElement('div');
+      _safeStyle(main, 'flex:1;display:flex;flex-direction:column;gap:2px;min-width:0');
+      const nameLine = document.createElement('div');
+      _safeStyle(nameLine, 'display:flex;align-items:center;gap:6px;flex-wrap:wrap');
+
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = a.name || a.symbol;
+      _safeStyle(nameSpan, 'font-weight:500');
+      nameLine.appendChild(nameSpan);
+      const symBadge = document.createElement('span');
+      symBadge.className = 'badge';
+      symBadge.textContent = a.symbol;
+      nameLine.appendChild(symBadge);
+      const tfBadge = document.createElement('span');
+      tfBadge.className = 'badge';
+      tfBadge.textContent = (a.interval || '1d') + ' - ' + (a.range || '1y');
+      nameLine.appendChild(tfBadge);
+      if (a.lastErrorMessage) {
+        const errBadge = document.createElement('span');
+        errBadge.className = 'badge';
+        _safeStyle(errBadge, 'color:#ef5350');
+        errBadge.textContent = 'error';
+        errBadge.title = a.lastErrorMessage;
+        nameLine.appendChild(errBadge);
+      }
+      main.appendChild(nameLine);
+
+      const statusLine = document.createElement('div');
+      _safeStyle(statusLine, 'font-size:10px;color:#787b86;overflow:hidden;text-overflow:ellipsis;white-space:nowrap');
+      statusLine.textContent = (a.lastFiredAt
+        ? 'Last fired ' + new Date(a.lastFiredAt).toLocaleString()
+        : 'Not fired yet') + ' - ' + a.webhookUrl;
+      main.appendChild(statusLine);
+      item.appendChild(main);
+
+      const actions = document.createElement('div');
+      _safeStyle(actions, 'display:flex;gap:4px;align-items:center;flex-shrink:0');
+
+      const testBtn = document.createElement('button');
+      testBtn.className = 'btn sm';
+      testBtn.textContent = 'Test';
+      testBtn.title = 'Fire the webhook now (does not mark as fired)';
+      testBtn.onclick = async () => {
+        testBtn.disabled = true;
+        testBtn.textContent = '...';
+        try {
+          await testCloudAlert(a.id);
+          testBtn.textContent = 'OK';
+          _safeStyle(testBtn, 'color:#26a69a');
+        } catch (e) {
+          testBtn.textContent = 'ERR';
+          _safeStyle(testBtn, 'color:#ef5350');
+          testBtn.title = e.message;
+        }
+        setTimeout(() => {
+          testBtn.disabled = false;
+          testBtn.textContent = 'Test';
+          _safeStyle(testBtn, 'color:');
+        }, 1800);
+      };
+      actions.appendChild(testBtn);
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn sm';
+      delBtn.textContent = 'X';
+      delBtn.title = 'Delete cloud alert';
+      delBtn.onclick = async () => {
+        if (!confirm('Delete cloud alert "' + (a.name || a.symbol) + '"?')) return;
+        try {
+          await deleteCloudAlert(a.id);
+          if (onChange) onChange();
+          else renderCloudAlertsPanel(container, { app, onChange });
+        } catch (e) { alert('Delete failed: ' + e.message); }
+      };
+      actions.appendChild(delBtn);
+      item.appendChild(actions);
+      listEl.appendChild(item);
+    }
+  } catch (e) {
+    console.warn('[cloud-alerts] render failed:', (e && e.message) || e);
+  }
+}
+
+// __cloud_alerts_ui__ manager modal
+export function openCloudAlertsManager({ app, onChange } = {}) {
+  try {
+    const overlay = document.createElement('div');
+    _safeStyle(overlay, 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center');
+    const dialog = document.createElement('div');
+    _safeStyle(dialog, 'background:#1e222d;color:#d1d4dc;padding:20px;border-radius:6px;width:680px;max-width:92vw;max-height:80vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,0.5);font-family:system-ui,sans-serif');
+    const title = document.createElement('div');
+    title.textContent = 'Cloud Alerts (fire with browser closed)';
+    _safeStyle(title, 'font-size:15px;font-weight:600;margin-bottom:4px');
+    dialog.appendChild(title);
+    const subtitle = document.createElement('div');
+    subtitle.textContent = 'Server polls every 60s and delivers to a webhook. Works without the browser open.';
+    _safeStyle(subtitle, 'font-size:11px;color:#787b86;margin-bottom:12px');
+    dialog.appendChild(subtitle);
+    const listContainer = document.createElement('div');
+    dialog.appendChild(listContainer);
+    const btnRow = document.createElement('div');
+    _safeStyle(btnRow, 'display:flex;gap:8px;justify-content:flex-end;margin-top:16px');
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = 'Close';
+    _safeStyle(closeBtn, 'background:#2a2e39;color:#d1d4dc;border:none;border-radius:3px;padding:8px 16px;cursor:pointer');
+    closeBtn.onclick = () => document.body.removeChild(overlay);
+    btnRow.appendChild(closeBtn);
+    dialog.appendChild(btnRow);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    const refresh = () => {
+      listContainer.innerHTML = '';
+      renderCloudAlertsPanel(listContainer, {
+        app,
+        onChange: () => {
+          refresh();
+          if (onChange) onChange();
+        },
+      });
+    };
+    refresh();
+  } catch (e) {
+    console.warn('[cloud-alerts] manager failed:', (e && e.message) || e);
+  }
+}

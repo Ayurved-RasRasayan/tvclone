@@ -594,7 +594,7 @@ await test('data window renders OHLC of the hovered bar', () => {
 });
 
 await test('no unexpected network paths were requested', () => {
-  const bad = fetchLog.filter((u) => !/\/api\/(chart|search|quote|spark|news|health)/.test(u));
+  const bad = fetchLog.filter((u) => !/\/api\/(chart|search|quote|spark|news|health|cloud-alerts)/.test(u));
   assertEqual(bad.length, 0, `unexpected fetches: ${bad.join(', ')}`);
 });
 
