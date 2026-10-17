@@ -1,3 +1,4 @@
+import { computeVolumeProfile } from './volume-profile.js'; // __volume_profile__
 import { rangeBars, renko, lineBreak, kagi, pointFigure, autoSize } from './bar-transforms.js'; // __bar_transforms_integration__
 /**
  * Chart: a TradingView-style canvas chart with panes, crosshair, drawing tools
@@ -42,6 +43,12 @@ export class Chart {
     this.viewport = new Viewport();
     this.priceScale = new PriceScale(opts.scaleMode || 'linear');
     this.chartType = opts.chartType || 'candles';
+    // __volume_profile__ state  disabled by default, toggled via toolbar button
+    this.volumeProfile = {
+      enabled: false,
+      rows: 24,
+      valueAreaPct: 0.7,
+    };
     this.showVolume = opts.showVolume !== false;
     this.showGrid = opts.showGrid !== false;
     this.logScale = false;
@@ -1631,6 +1638,7 @@ export class Chart {
     const X = (i) => this.xAtIndex(i);
     const Y = (p) => this._y(p, pane);
 
+    this._renderVolumeProfile(pane, ctx);
     switch (d.type) {
       // __smc_drawings__ SMC + liquidity concept drawings
       case 'order_block_bull':
@@ -2494,6 +2502,73 @@ export class Chart {
     this.pendingDrawing = null;
     this.overlay.style.cursor = tool ? 'crosshair' : 'default';
     this.render();
+  }
+
+  // __volume_profile__ draw volume-at-price histogram + POC line + VA shading
+  _renderVolumeProfile(pane, ctx) {
+    try {
+      const cfg = this.volumeProfile;
+      if (!cfg || !cfg.enabled) return;
+      if (!Array.isArray(this.bars) || this.bars.length === 0) return;
+      if (typeof computeVolumeProfile !== 'function') return;
+
+      // Cache the computed profile per bar-count so we don't recompute
+      // N times per frame (the drawing loop calls this once per drawing).
+      const cacheKey = this.bars.length + ':' + (cfg.rows || 24) + ':' + (cfg.valueAreaPct ?? 0.7);
+      if (!this._vpCache || this._vpCacheKey !== cacheKey) {
+        this._vpCache = computeVolumeProfile(this.bars, {
+          rows: cfg.rows || 24,
+          valueAreaPct: cfg.valueAreaPct ?? 0.7,
+        });
+        this._vpCacheKey = cacheKey;
+      }
+      const vp = this._vpCache;
+      if (!vp || !vp.rows || vp.rows.length === 0) return;
+      if (!Number.isFinite(vp.maxBucketVolume) || vp.maxBucketVolume <= 0) return;
+
+      const Y = (p) => this._y(p, pane);
+      const maxW = this.plotWidth * 0.22;
+      const rowH = Math.max(2, (this.plotHeight / vp.rows.length) * 0.85);
+
+      ctx.save();
+      ctx.globalAlpha = 0.78;
+      for (const row of vp.rows) {
+        const barW = (row.volume / vp.maxBucketVolume) * maxW;
+        if (barW < 1) continue;
+        const y = Y(row.priceMid);
+        if (!Number.isFinite(y)) continue;
+        let fill;
+        if (row.isPOC) fill = '#f9c74f';
+        else if (row.inVA) fill = 'rgba(41,98,255,0.55)';
+        else fill = 'rgba(120,123,134,0.4)';
+        ctx.fillStyle = fill;
+        ctx.fillRect(this.plotWidth - barW, y - rowH / 2, barW, rowH);
+      }
+      // POC line
+      const pocY = Y(vp.poc);
+      if (Number.isFinite(pocY)) {
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = '#f9c74f';
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(this.plotWidth - maxW, pocY);
+        ctx.lineTo(this.plotWidth, pocY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // POC label
+        if (ctx.fillText) {
+          ctx.fillStyle = '#f9c74f';
+          ctx.font = 'bold ' + (typeof THEME !== 'undefined' && THEME.fontSmall ? THEME.fontSmall : '10px sans-serif');
+          ctx.textAlign = 'right';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText('POC', this.plotWidth - 2, pocY - 2);
+        }
+      }
+      ctx.restore();
+    } catch (e) {
+      // Swallow shim/canvas limitations  rendering must not crash the frame
+    }
   }
 
   _startDrawing(x, y) {

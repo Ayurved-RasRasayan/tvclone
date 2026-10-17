@@ -596,6 +596,22 @@ class App {
     }
 
     $('#btnChartType').addEventListener('click', (e) => this.openChartTypeMenu(e));
+    // __volume_profile__ inject a Volume Profile toggle button after the chart-type button
+    try {
+      const chartTypeBtn = document.getElementById('btnChartType');
+      if (chartTypeBtn && chartTypeBtn.parentElement && !document.getElementById('btnVolumeProfile')) {
+        const vpBtn = chartTypeBtn.cloneNode(true);
+        vpBtn.id = 'btnVolumeProfile';
+        vpBtn.title = 'Volume Profile (VRVP)  toggle';
+        vpBtn.addEventListener('click', (e) => {
+          if (e && e.preventDefault) e.preventDefault();
+          this.toggleVolumeProfile();
+        });
+        chartTypeBtn.parentElement.insertBefore(vpBtn, chartTypeBtn.nextSibling);
+      }
+    } catch (e) {
+      // shim may not support cloneNode/insertBefore  non-fatal
+    }
     $('#btnIndicators').addEventListener('click', () => this.openIndicatorDialog());
     $('#btnPine').addEventListener('click', () => this.openBottom('editor'));
     $('#btnAlert').addEventListener('click', () => this.createAlert());
@@ -2279,6 +2295,22 @@ class App {
       app: this,
       onChange: () => this.renderAlerts(),
     });
+  }
+
+  // __volume_profile__ toggle the current pane's volume profile
+  toggleVolumeProfile() {
+    const chart = this.activePane?.chart;
+    if (!chart) return;
+    if (!chart.volumeProfile) chart.volumeProfile = { enabled: false, rows: 24, valueAreaPct: 0.7 };
+    chart.volumeProfile.enabled = !chart.volumeProfile.enabled;
+    chart.render();
+    const btn = document.getElementById && document.getElementById('btnVolumeProfile');
+    if (btn) {
+      if (btn.classList) {
+        if (chart.volumeProfile.enabled) btn.classList.add && btn.classList.add('active');
+        else btn.classList.remove && btn.classList.remove('active');
+      }
+    }
   }
 
   async loadNews() {

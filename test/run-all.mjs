@@ -18,6 +18,7 @@ const SUITES = [
   { name: 'application', file: 'test/app.test.mjs' },
   { name: 'live data', file: 'test/live.test.mjs' },
   { name: 'cloud alerts', file: 'test/cloud-alerts.test.mjs' },
+  { name: 'volume profile', file: 'test/volume-profile.test.mjs' },
 ];
 
 function run(file) {
