@@ -664,7 +664,13 @@ class App {
     ];
 
     this.railButtons = {};
-    for (const t of tools) {
+    // __rail_extra_tools__ add arrow/extended/vline to the rail
+    const _extraTools = [
+      { id: 'arrow',    icon: 'trendline', title: 'Arrow',            sep: false },
+      { id: 'extended', icon: 'trendline', title: 'Extended trendline', sep: false },
+      { id: 'vline',    icon: 'trendline', title: 'Vertical line',    sep: false },
+    ];
+    for (const t of tools.concat(_extraTools)) {
       if (t.sep) {
         rail.appendChild(el('div', { style: { width: '24px', height: '1px', background: 'var(--border)', margin: '3px 0' } }));
         continue;

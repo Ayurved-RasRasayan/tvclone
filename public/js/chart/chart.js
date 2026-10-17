@@ -1623,6 +1623,14 @@ export class Chart {
           ctx.moveTo(0, y1);
           ctx.lineTo(this.plotWidth, y1);
           ctx.stroke();
+        } else if (d.type === 'vline') {
+          // __vline_vertical__ draw vertical line from top to bottom of the plot
+          const top = 0;
+          const bottom = this.plotHeight || (pane && (pane.plotHeight || pane.height)) || 2000;
+          ctx.beginPath();
+          ctx.moveTo(x1, top);
+          ctx.lineTo(x1, bottom);
+          ctx.stroke();
         } else {
           const ext = (d.type === 'ray' || d.type === 'extended') ? 'both' : d.extend || 'none';
           const [ax, ay, bx, by] = extendLine(x1, y1, x2, y2, ext, this.plotWidth, pane);
@@ -1633,7 +1641,7 @@ export class Chart {
         }
         if (selected) {
           drawHandle(ctx, x1, y1, color);
-          if (d.type !== 'hline') drawHandle(ctx, x2, y2, color);
+          if (d.type !== 'hline' && d.type !== 'vline') drawHandle(ctx, x2, y2, color);
         }
         
         // __new_drawing_types__ arrowhead drawing (added)
