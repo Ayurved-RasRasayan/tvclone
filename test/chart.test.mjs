@@ -333,6 +333,36 @@ test('setData: stores _rawBars regardless of chart type', () => {
 
 // __bar_transforms_tests_end__
 
+// __smc_drawings_test__
+test('SMC drawings: all 12 types create + render without throw', () => {
+  const chart = makeChart();
+  chart.setData([
+    { t: 1000000, o: 100, h: 101, l: 99, c: 100.5, v: 1000 },
+    { t: 1000001, o: 100.5, h: 102, l: 100, c: 101.5, v: 1000 },
+    { t: 1000002, o: 101.5, h: 103, l: 101, c: 102.5, v: 1000 },
+    { t: 1000003, o: 102.5, h: 104, l: 102, c: 103.5, v: 1000 },
+  ]);
+  const smcTypes = [
+    'order_block_bull', 'order_block_bear',
+    'fvg_bull', 'fvg_bear',
+    'liquidity_high', 'liquidity_low',
+    'bos', 'choch',
+    'equal_highs', 'equal_lows',
+    'premium_zone', 'discount_zone',
+  ];
+  for (const type of smcTypes) {
+    chart.setActiveTool(type);
+    chart._startDrawing(100, 300);
+    chart._updatePendingDrawing(200, 200);
+    chart._finishDrawing();
+    assert(chart.drawings.length > 0, type + ' should add a drawing');
+    const last = chart.drawings[chart.drawings.length - 1];
+    assertEqual(last.type, type, type + ' drawing type');
+  }
+  chart.render();
+  assert(true, 'render with 12 SMC drawings completed');
+});
+
 test('drawing tool: trendline create, hit-test, drag, delete', () => {
   const chart = makeChart();
   chart.setActiveTool('trendline');

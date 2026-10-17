@@ -1632,6 +1632,145 @@ export class Chart {
     const Y = (p) => this._y(p, pane);
 
     switch (d.type) {
+      // __smc_drawings__ SMC + liquidity concept drawings
+      case 'order_block_bull':
+      case 'order_block_bear': {
+        const x1 = X(d.x1);
+        const y1 = Y(d.y1);
+        const y2 = Y(d.y2 ?? d.y1);
+        const isBull = d.type === 'order_block_bull';
+        const right = this.plotWidth;
+        const top = Math.min(y1, y2);
+        const h = Math.abs(y2 - y1);
+        ctx.save();
+        ctx.fillStyle = isBull ? 'rgba(38,166,154,0.15)' : 'rgba(239,83,80,0.15)';
+        ctx.strokeStyle = isBull ? '#26a69a' : '#ef5350';
+        ctx.lineWidth = 1.5;
+        ctx.fillRect(x1, top, right - x1, h);
+        ctx.strokeRect(x1, top, right - x1, h);
+        ctx.fillStyle = isBull ? '#26a69a' : '#ef5350';
+        ctx.font = 'bold ' + THEME.fontSmall;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText(isBull ? 'Bull OB' : 'Bear OB', x1 + 4, top + 4);
+        ctx.restore();
+        if (selected) { drawHandle(ctx, x1, y1, color); drawHandle(ctx, x1, y2, color); }
+        break;
+      }
+      case 'fvg_bull':
+      case 'fvg_bear': {
+        const x1 = X(d.x1);
+        const x2 = X(d.x2 ?? d.x1);
+        const y1 = Y(d.y1);
+        const y2 = Y(d.y2 ?? d.y1);
+        const isBull = d.type === 'fvg_bull';
+        const left = Math.min(x1, x2);
+        const top = Math.min(y1, y2);
+        const w = Math.abs(x2 - x1);
+        const h = Math.abs(y2 - y1);
+        ctx.save();
+        ctx.fillStyle = isBull ? 'rgba(38,166,154,0.12)' : 'rgba(239,83,80,0.12)';
+        ctx.strokeStyle = isBull ? 'rgba(38,166,154,0.6)' : 'rgba(239,83,80,0.6)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 3]);
+        ctx.fillRect(left, top, w, h);
+        ctx.strokeRect(left, top, w, h);
+        ctx.setLineDash([]);
+        ctx.fillStyle = isBull ? '#26a69a' : '#ef5350';
+        ctx.font = 'bold ' + THEME.fontSmall;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText(isBull ? 'Bull FVG' : 'Bear FVG', left + 4, top + 4);
+        ctx.restore();
+        if (selected) { drawHandle(ctx, x1, y1, color); drawHandle(ctx, x2, y2, color); }
+        break;
+      }
+      case 'liquidity_high':
+      case 'liquidity_low':
+      case 'bos':
+      case 'choch': {
+        const x1 = X(d.x1);
+        const y1 = Y(d.y1);
+        const left = Math.min(x1, this.plotWidth);
+        const right = this.plotWidth;
+        const cfg = {
+          liquidity_high: { text: '$$ high', color: '#f9c74f' },
+          liquidity_low: { text: '$$ low', color: '#f9c74f' },
+          bos: { text: 'BOS', color: '#d1d4dc' },
+          choch: { text: 'CHoCH', color: '#d1d4dc' },
+        }[d.type];
+        ctx.save();
+        ctx.strokeStyle = cfg.color;
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash((d.type === 'bos' || d.type === 'choch') ? [4, 3] : []);
+        ctx.beginPath();
+        ctx.moveTo(left, y1);
+        ctx.lineTo(right, y1);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = cfg.color;
+        ctx.font = 'bold ' + THEME.fontSmall;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = (d.type === 'liquidity_low') ? 'top' : 'bottom';
+        const labelY = (d.type === 'liquidity_low') ? y1 + 3 : y1 - 3;
+        ctx.fillText(cfg.text, left + 4, labelY);
+        ctx.restore();
+        if (selected) { drawHandle(ctx, left, y1, color); drawHandle(ctx, right - 4, y1, color); }
+        break;
+      }
+      case 'equal_highs':
+      case 'equal_lows': {
+        const x1 = X(d.x1);
+        const x2 = X(d.x2 ?? d.x1);
+        const y1 = Y(d.y1);
+        const y2 = Y(d.y2 ?? d.y1);
+        ctx.save();
+        ctx.strokeStyle = '#f9c74f';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.moveTo(x1 - 12, y1);
+        ctx.lineTo(x1 + 12, y1);
+        ctx.moveTo(x2 - 12, y2);
+        ctx.lineTo(x2 + 12, y2);
+        ctx.stroke();
+        ctx.fillStyle = '#f9c74f';
+        ctx.font = 'bold ' + THEME.fontSmall;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(d.type === 'equal_highs' ? 'EQH' : 'EQL', x1 + 14, y1 - 3);
+        ctx.restore();
+        if (selected) { drawHandle(ctx, x1, y1, color); drawHandle(ctx, x2, y2, color); }
+        break;
+      }
+      case 'premium_zone':
+      case 'discount_zone': {
+        const x1 = X(d.x1);
+        const x2 = X(d.x2 ?? d.x1);
+        const y1 = Y(d.y1);
+        const y2 = Y(d.y2 ?? d.y1);
+        const isPremium = d.type === 'premium_zone';
+        const left = Math.min(x1, x2);
+        const top = Math.min(y1, y2);
+        const w = Math.abs(x2 - x1);
+        const h = Math.abs(y2 - y1);
+        ctx.save();
+        ctx.fillStyle = isPremium ? 'rgba(239,83,80,0.10)' : 'rgba(38,166,154,0.10)';
+        ctx.strokeStyle = isPremium ? 'rgba(239,83,80,0.55)' : 'rgba(38,166,154,0.55)';
+        ctx.lineWidth = 1;
+        ctx.fillRect(left, top, w, h);
+        ctx.strokeRect(left, top, w, h);
+        ctx.fillStyle = isPremium ? '#ef5350' : '#26a69a';
+        ctx.font = 'bold ' + THEME.fontSmall;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText(isPremium ? 'Premium' : 'Discount', left + 4, top + 4);
+        ctx.restore();
+        if (selected) { drawHandle(ctx, x1, y1, color); drawHandle(ctx, x2, y2, color); }
+        break;
+      }
+
       case 'trendline':
       case 'arrow':
       case 'extended':
@@ -2396,9 +2535,15 @@ export class Chart {
     const d = this.pendingDrawing;
     this.pendingDrawing = null;
     if (!d) return;
+    // __smc_single_click__ hline + SMC horizontal types fire on single click
+    const singleClickType = d.type === 'hline'
+      || d.type === 'liquidity_high'
+      || d.type === 'liquidity_low'
+      || d.type === 'bos'
+      || d.type === 'choch';
     const moved =
-      Math.abs((d.x2 ?? d.x1) - d.x1) > 1e-9 || Math.abs((d.y2 ?? d.y1) - d.y1) > 1e-9 || d.type === 'hline';
-    if (!moved && d.type !== 'hline') {
+      Math.abs((d.x2 ?? d.x1) - d.x1) > 1e-9 || Math.abs((d.y2 ?? d.y1) - d.y1) > 1e-9 || singleClickType;
+    if (!moved) {
       this.render();
       return;
     }
@@ -2456,7 +2601,7 @@ export class Chart {
         if (Math.abs(Y(d.y1) - y) < tol) return { kind: 'drawing', drawing: d, handle: 'p1' };
         continue;
       }
-      if (['trendline', 'arrow', 'extended', 'ray', 'rect', 'fib', 'measure'].includes(d.type)) {
+      if (['trendline', 'arrow', 'extended', 'ray', 'rect', 'fib', 'measure', /* __smc_hit__ */ 'order_block_bull', 'order_block_bear', 'fvg_bull', 'fvg_bear', 'liquidity_high', 'liquidity_low', 'bos', 'choch', 'equal_highs', 'equal_lows', 'premium_zone', 'discount_zone'].includes(d.type)) {
         if (Math.hypot(X(d.x1) - x, Y(d.y1) - y) < tol) return { kind: 'drawing', drawing: d, handle: 'p1' };
         if (Math.hypot(X(d.x2) - x, Y(d.y2) - y) < tol) return { kind: 'drawing', drawing: d, handle: 'p2' };
       }
