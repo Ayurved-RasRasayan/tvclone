@@ -1757,7 +1757,9 @@ defAlias(['plot'], (c) => {
   const plot = interp.outputs.plots.find((p) => p.id === id);
   const target = c.bar + plot.offset;
   if (target >= 0 && target < interp.n) {
-    const v = series instanceof Series ? series.values[c.bar] : series;
+    const v = (series && series.isSeries && Array.isArray(series.values))
+      ? series.values[c.bar]
+      : (series instanceof Series ? series.values[c.bar] : series);
     plot.values[target] = typeof v === 'boolean' ? (v ? 1 : 0) : v;
     // Color: named arg 'color' or positional[2]
     const colorArg = named.color !== undefined ? named.color : c.positional[2];
