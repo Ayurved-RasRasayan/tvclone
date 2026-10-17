@@ -2389,7 +2389,21 @@ def('request.splits', (c) => {
 // __real_splits__ field constants
 def('splits.numerator',   () => 'splits.numerator');
 def('splits.denominator', () => 'splits.denominator');
-def('request.earnings', () => NaN);
+// __real_earnings__ returns earnings field on report-date bars, na otherwise
+def('request.earnings', (c) => {
+  const field = strv(c, c.positional[1], 'earnings.actual');
+  const e = c.interp.earningsAt(c.bar);
+  if (!e) return null;
+  if (field === 'earnings.estimate') return e.estimate;
+  if (field === 'earnings.surprise') return (e.actual !== null && e.estimate !== null) ? (e.actual - e.estimate) : null;
+  if (field === 'earnings.surprise_pct') return e.surprisePct;
+  return e.actual;
+});
+// __real_earnings__ field constants
+def('earnings.actual',       () => 'earnings.actual');
+def('earnings.estimate',     () => 'earnings.estimate');
+def('earnings.surprise',     () => 'earnings.surprise');
+def('earnings.surprise_pct', () => 'earnings.surprise_pct');
 def('request.quandl', () => NaN);
 def('request.financial', () => NaN);
 def('request.seed', () => NaN);

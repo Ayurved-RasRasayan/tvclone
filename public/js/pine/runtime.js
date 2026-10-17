@@ -184,6 +184,10 @@ export class Interpreter {
     this.splits = (opts.meta && Array.isArray(opts.meta.splits))
       ? opts.meta.splits
       : (Array.isArray(opts.splits) ? opts.splits : []);
+    // __earnings_plumbing__ earnings events from chart meta
+    this.earnings = (opts.meta && Array.isArray(opts.meta.earnings))
+      ? opts.meta.earnings
+      : (Array.isArray(opts.earnings) ? opts.earnings : []);
     this.host = opts.host || {};
     this.inputOverrides = opts.inputs || {};
     this.timeframe = opts.timeframe || { period: '1D', multiplier: 1, isintraday: false };
@@ -1418,6 +1422,20 @@ export class Interpreter {
     return null;
   }
 
+  /** __earnings_plumbing__ earnings event for bar i, or null. */
+  earningsAt(i) {
+    if (!this.earnings || !this.earnings.length) return null;
+    const bar = this.bars[i];
+    if (!bar) return null;
+    const next = this.bars[i + 1];
+    const lo = bar.t;
+    const hi = next ? next.t : bar.t + 90 * 86400000;
+    for (const e of this.earnings) {
+      if (e.t >= lo && e.t < hi) return e;
+    }
+    return null;
+  }
+
   compare(a, b) {
     const ra = a instanceof Series ? a.values[this.bar] : a;
     const rb = b instanceof Series ? b.values[this.bar] : b;
@@ -2026,7 +2044,7 @@ export class Interpreter {
  * ------------------------------------------------------------------ */
 
 /** Namespaces whose members are values computed by the interpreter, not builtins. */
-const VALUE_NAMESPACES = new Set(['syminfo', 'timeframe', 'strategy', 'barstate', 'chart', 'dividends', 'splits']); // __dividend_plumbing__ __splits_plumbing__
+const VALUE_NAMESPACES = new Set(['syminfo', 'timeframe', 'strategy', 'barstate', 'chart', 'dividends', 'splits', 'earnings']); // __dividend_plumbing__ __splits_plumbing__ __earnings_plumbing__
 
 export function dottedPath(node) {  if (!node) return null;
   if (node.type === NT.IDENT) return node.name;

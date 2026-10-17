@@ -508,6 +508,54 @@ test('request.splits returns numerator and denominator on split bars', () => {
   assertClose(denVals[2], 1, 1e-9, 'denominator at bar 2');
 });
 
+// __earnings_tests__ request.earnings returns actual/estimate/surprise_pct on report bars
+test('request.earnings returns actual EPS on report-date bar, na elsewhere', () => {
+  const mkBar = (t) => ({ t, o: 100, h: 101, l: 99, c: 100, v: 1000 });
+  const bars = [mkBar(1000), mkBar(2000), mkBar(3000), mkBar(4000)];
+  const earnings = [{ t: 3000, actual: 1.5, estimate: 1.4, surprisePct: 7.14 }];
+  const r = runPine(
+    `plot(request.earnings("X", earnings.actual))`,
+    { bars, symbol: { symbol: 'X' }, meta: { earnings } }
+  );
+  assert(r.ok, r.error?.message);
+  const vals = r.outputs.plots[0].values;
+  assertEqual(vals[0], null, 'bar 0 no earnings');
+  assertEqual(vals[1], null, 'bar 1 no earnings');
+  assertClose(vals[2], 1.5, 1e-9, 'actual at bar 2');
+  assertEqual(vals[3], null, 'bar 3 no earnings');
+});
+
+test('request.earnings returns estimate and surprise_pct fields', () => {
+  const mkBar = (t) => ({ t, o: 100, h: 101, l: 99, c: 100, v: 1000 });
+  const bars = [mkBar(1000), mkBar(2000), mkBar(3000)];
+  const earnings = [{ t: 2000, actual: 1.5, estimate: 1.4, surprisePct: 7.14 }];
+  const est = runPine(
+    `plot(request.earnings("X", earnings.estimate))`,
+    { bars, symbol: { symbol: 'X' }, meta: { earnings } }
+  );
+  assert(est.ok, est.error?.message);
+  assertClose(est.outputs.plots[0].values[1], 1.4, 1e-9, 'estimate');
+
+  const spct = runPine(
+    `plot(request.earnings("X", earnings.surprise_pct))`,
+    { bars, symbol: { symbol: 'X' }, meta: { earnings } }
+  );
+  assert(spct.ok, spct.error?.message);
+  assertClose(spct.outputs.plots[0].values[1], 7.14, 1e-9, 'surprise pct');
+});
+
+test('request.earnings returns na when no earnings array is provided', () => {
+  const mkBar = (t) => ({ t, o: 100, h: 101, l: 99, c: 100, v: 1000 });
+  const bars = [mkBar(1000), mkBar(2000)];
+  const r = runPine(
+    `plot(request.earnings("X", earnings.actual))`,
+    { bars, symbol: { symbol: 'X' } }
+  );
+  assert(r.ok, r.error?.message);
+  assertEqual(r.outputs.plots[0].values[0], null);
+  assertEqual(r.outputs.plots[0].values[1], null);
+});
+
 // __entry_leg_commission_test__ commission charged on both entry and exit
 test('strategy() commission is charged on entry AND exit', () => {
   const r = run(`

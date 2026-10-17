@@ -225,6 +225,64 @@ function mapChart(json) {
  * Route handlers
  * ------------------------------------------------------------------ */
 
+// __earnings_fetched__ convert Yahoo quarter string to approximate report date
+function quarterToReportDate(q) {
+  if (!q) return null;
+  const s = String(q).trim();
+  let year = null;
+  let quarter = null;
+  let m = s.match(/^(\d)Q(\d{4})$/i);
+  if (m) { quarter = Number(m[1]); year = Number(m[2]); }
+  else {
+    m = s.match(/^(\d{4})[-\s]?Q?(\d)$/i);
+    if (m) { year = Number(m[1]); quarter = Number(m[2]); }
+  }
+  if (!year || !quarter || quarter < 1 || quarter > 4) return null;
+  const month = quarter * 3;
+  const quarterEnd = Date.UTC(year, month, 0);
+  return quarterEnd + 21 * 86400000;
+}
+
+async function fetchEarnings(symbol) {
+  const path = '/v10/finance/quoteSummary/' + encodeURIComponent(symbol) + '?modules=earningsHistory';
+  const json = await yahooJson(path);
+  const hist = json?.quoteSummary?.result?.[0]?.earningsHistory?.history || [];
+  const out = [];
+  for (const h of hist) {
+    const qRaw = h.quarter?.raw ?? h.quarter;
+    const actualRaw = h.epsActual?.raw ?? h.epsActual;
+    const estimateRaw = h.epsEstimate?.raw ?? h.epsEstimate;
+    const surpriseRaw = h.surprisePercent?.raw ?? h.surprisePercent;
+    if (!Number.isFinite(Number(actualRaw))) continue;
+    const t = quarterToReportDate(qRaw);
+    if (t === null) continue;
+    out.push({
+      t,
+      actual: Number(actualRaw),
+      estimate: Number.isFinite(Number(estimateRaw)) ? Number(estimateRaw) : null,
+      surprisePct: Number.isFinite(Number(surpriseRaw)) ? Number(surpriseRaw) : null,
+      quarter: String(qRaw || ''),
+    });
+  }
+  out.sort((a, b) => a.t - b.t);
+  return out;
+}
+
+async function getEarnings(symbol) {
+  const key = 'earnings:' + symbol;
+  const cached = cacheGet(key);
+  if (cached) return cached;
+  try {
+    const result = await fetchEarnings(symbol);
+    cacheSet(key, result, 6 * 60 * 60 * 1000);
+    return result;
+  } catch (err) {
+    console.warn('[earnings] ' + symbol + ': ' + (err.message || err));
+    cacheSet(key, [], 5 * 60 * 1000);
+    return [];
+  }
+}
+
 async function handleChart(url) {
   const symbol = (url.searchParams.get('symbol') || 'AAPL').trim();
   const interval = (url.searchParams.get('interval') || '1d').trim();
@@ -263,6 +321,7 @@ async function handleChart(url) {
     cacheSet(key, empty, 30000);
     return empty;
   }
+  mapped.earnings = await getEarnings(symbol).catch(() => []);
   cacheSet(key, mapped, seconds >= 86400 ? 60000 : 20000);
   return mapped;
 }
