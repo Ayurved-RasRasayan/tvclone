@@ -255,6 +255,8 @@ export class Interpreter {
     if (v instanceof Series) {
       // FIX A: ring-buffer modular indexing.
       const x = v.values[this.bar % Series.LOOKBACK];
+      // Comparison series can store booleans (from seriesBinop).
+      if (typeof x === 'boolean') return x ? 1 : 0;
       return Number.isNaN(x) ? NaN : x;
     }
     if (typeof v === 'string') return NaN;
@@ -269,6 +271,9 @@ export class Interpreter {
     if (v instanceof Series) {
       // FIX A: ring-buffer modular indexing.
       const x = v.values[this.bar % Series.LOOKBACK];
+      // Comparison series can store booleans (from seriesBinop). JS quirk:
+      // false !== 0 is true (strict), so must branch on type explicitly.
+      if (typeof x === 'boolean') return x;
       return !Number.isNaN(x) && x !== 0;
     }
     if (typeof v === 'string') return v.length > 0;
