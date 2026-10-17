@@ -92,6 +92,16 @@ export function computeStats(strategy, bars = []) {
   const sd = Math.sqrt(varRet);
   const sharpe = sd > 0 ? (meanRet / sd) * Math.sqrt(252) : 0;
 
+  // __sortino_commission_export__ Sortino: downside-deviation-only ratio.
+  const downs = rets.filter((r) => r < 0);
+  let sortino = 0;
+  if (downs.length > 0) {
+    const meanDown = downs.reduce((a, b) => a + b, 0) / downs.length;
+    const varDown = downs.reduce((a, b) => a + (b - meanDown) ** 2, 0) / downs.length;
+    const sdDown = Math.sqrt(varDown);
+    if (sdDown > 0) sortino = (meanRet / sdDown) * Math.sqrt(252);
+  }
+
   const avgBars = trades.length ? barsHeld / trades.length : 0;
   const expectancy = trades.length ? netProfit / trades.length : 0;
 
@@ -119,6 +129,7 @@ export function computeStats(strategy, bars = []) {
     maxDrawdown: maxDD,
     maxDrawdownPct: maxDDPct,
     sharpe,
+    sortino,
     avgBarsInTrade: avgBars,
     expectancy,
     longTrades,
@@ -166,6 +177,7 @@ export function renderStrategyPane(container, { stats, strategy, symbol, timezon
     ['Max drawdown', money(-stats.maxDrawdown), 'down'],
     ['Max drawdown %', `${stats.maxDrawdownPct.toFixed(2)}%`, 'down'],
     ['Sharpe ratio', Number.isFinite(stats.sharpe) ? stats.sharpe.toFixed(2) : '—', cls(stats.sharpe)],
+    ['Sortino ratio', Number.isFinite(stats.sortino) ? stats.sortino.toFixed(2) : '—', cls(stats.sortino)],
     ['Gross profit', money(stats.grossProfit), 'up'],
     ['Gross loss', money(-stats.grossLoss), 'down'],
     ['Avg win', money(stats.avgWin), 'up'],
@@ -190,6 +202,28 @@ export function renderStrategyPane(container, { stats, strategy, symbol, timezon
   const equity = (strategy?.equityCurve || []).filter((v) => Number.isFinite(v));
   if (equity.length > 2) {
     container.appendChild(renderEquityChart(equity, stats));
+    // __sortino_commission_export__ Equity curve CSV download
+    {
+      const exportBtn = el('button', {
+        class: 'btn sm',
+        text: 'Export equity CSV',
+        style: { margin: '0 10px 12px' },
+        onclick: () => {
+          const rows = ['Equity'];
+          for (const v of equity) rows.push(String(v));
+          const blob = new Blob([rows.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'equity_' + (symbol || 'strategy') + '_' + new Date().toISOString().slice(0, 10) + '.csv';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 2000);
+        },
+      });
+      container.appendChild(exportBtn);
+    }
   }
 
   // Trades table
@@ -208,6 +242,7 @@ export function renderStrategyPane(container, { stats, strategy, symbol, timezon
         el('th', { class: 'num', text: 'Size' }),
         el('th', { class: 'num', text: 'P&L' }),
         el('th', { class: 'num', text: 'P&L %' }),
+        el('th', { class: 'num', text: 'Commission' }),
       ]),
     ])
   );
@@ -224,6 +259,7 @@ export function renderStrategyPane(container, { stats, strategy, symbol, timezon
       el('td', { class: 'num', text: String(Math.abs(t.size)) }),
       el('td', { class: 'num', style: { color: t.profit >= 0 ? 'var(--up)' : 'var(--down)' }, text: t.profit.toFixed(2) }),
       el('td', { class: 'num', style: { color: plPct >= 0 ? 'var(--up)' : 'var(--down)' }, text: `${plPct >= 0 ? '+' : ''}${plPct.toFixed(2)}%` }),
+      el('td', { class: 'num', text: (Number(t.commission) || 0).toFixed(2) }),
     ]);
     tbody.appendChild(row);
   });
