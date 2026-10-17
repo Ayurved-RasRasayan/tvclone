@@ -1,0 +1,19 @@
+{
+  "name": "tvclone",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Full-featured TradingView-style charting platform with Yahoo Finance data and a Pine Script engine",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node test/run-all.mjs",
+    "test:pine": "node test/pine.test.mjs",
+    "test:chart": "node test/chart.test.mjs",
+    "test:app": "node test/app.test.mjs",
+    "test:live": "node test/live.test.mjs",
+    "test:modules": "node test/modules.test.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

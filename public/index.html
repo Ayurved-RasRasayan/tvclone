@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tvclone — Charts, Pine Script &amp; Replay</title>
+    <link rel="stylesheet" href="/css/app.css?v=3" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23131722'/%3E%3Cpath d='M5 21l5-6 4 3 5-9 4 5 4-3' stroke='%232962ff' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <!-- ============================ SVG sprite ============================ -->
+    <svg style="display: none" aria-hidden="true">
+      <symbol id="i-candle" viewBox="0 0 24 24">
+        <path d="M7 3v3M7 18v3M5 6h4v12H5zM17 2v4M17 19v3M15 6h4v13h-4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-line" viewBox="0 0 24 24">
+        <path d="M3 17l5-6 4 3 5-8 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-area" viewBox="0 0 24 24">
+        <path d="M3 17l5-6 4 3 5-8 4 4v7H3z" fill="currentColor" opacity=".3" />
+        <path d="M3 17l5-6 4 3 5-8 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-bars" viewBox="0 0 24 24">
+        <path d="M6 4v16M6 9h3M6 15h-3M13 3v18M13 8h3M13 16h-3M20 6v12M20 10h-3M20 14h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-hollow" viewBox="0 0 24 24">
+        <path d="M8 2v3M8 19v3M5 5h6v14H5z" fill="none" stroke="currentColor" stroke-width="1.6" />
+        <path d="M17 2v3M17 19v3M14 5h6v14h-6z" fill="currentColor" stroke="currentColor" stroke-width="1.6" />
+      </symbol>
+      <symbol id="i-search" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2" />
+        <path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-indicator" viewBox="0 0 24 24">
+        <path d="M3 18l5-7 4 4 4-8 5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+        <circle cx="8" cy="11" r="1.6" fill="currentColor" />
+        <circle cx="16" cy="7" r="1.6" fill="currentColor" />
+      </symbol>
+      <symbol id="i-pine" viewBox="0 0 24 24">
+        <path d="M9 5L4 12l5 7M15 5l5 7-5 7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" />
+        <path d="M13 4l-2 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24">
+        <path d="M12 3a6 6 0 00-6 6v4l-1.6 3h15.2L18 13V9a6 6 0 00-6-6z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
+        <path d="M10 19a2 2 0 004 0" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-replay" viewBox="0 0 24 24">
+        <path d="M4 12a8 8 0 108-8 8 8 0 00-6.3 3.1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+        <path d="M3 4v4h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+        <path d="M10 9l5 3-5 3z" fill="currentColor" />
+      </symbol>
+      <symbol id="i-play" viewBox="0 0 24 24">
+        <path d="M7 4l13 8-13 8z" fill="currentColor" />
+      </symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24">
+        <path d="M7 4h4v16H7zM13 4h4v16h-4z" fill="currentColor" />
+      </symbol>
+      <symbol id="i-step" viewBox="0 0 24 24">
+        <path d="M5 4l10 8-10 8z" fill="currentColor" />
+        <path d="M17 4h2.5v16H17z" fill="currentColor" />
+      </symbol>
+      <symbol id="i-layout" viewBox="0 0 24 24">
+        <path d="M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z" fill="none" stroke="currentColor" stroke-width="1.6" />
+      </symbol>
+      <symbol id="i-trend" viewBox="0 0 24 24">
+        <path d="M4 18L20 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+        <circle cx="4" cy="18" r="2" fill="currentColor" />
+        <circle cx="20" cy="6" r="2" fill="currentColor" />
+      </symbol>
+      <symbol id="i-hline" viewBox="0 0 24 24">
+        <path d="M3 12h18" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
+        <circle cx="8" cy="12" r="2" fill="currentColor" />
+      </symbol>
+      <symbol id="i-rect" viewBox="0 0 24 24">
+        <rect x="4" y="6" width="16" height="12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-dasharray="3 2" />
+      </symbol>
+      <symbol id="i-fib" viewBox="0 0 24 24">
+        <path d="M3 5h18M3 9.5h18M3 14h18M3 18.5h18" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 2" />
+      </symbol>
+      <symbol id="i-text" viewBox="0 0 24 24">
+        <path d="M5 6h14M12 6v13M9 19h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-measure" viewBox="0 0 24 24">
+        <path d="M4 4v16M20 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+        <path d="M4 8l3 4-3 4M20 8l-3 4 3 4" fill="none" stroke="currentColor" stroke-width="1.4" />
+      </symbol>
+      <symbol id="i-eraser" viewBox="0 0 24 24">
+        <path d="M4 20h16M7 17l10-10a2 2 0 013 3L10 20H7z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24">
+        <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z" fill="none" stroke="currentColor" stroke-width="1.6" />
+        <circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6" />
+      </symbol>
+      <symbol id="i-eye-off" viewBox="0 0 24 24">
+        <path d="M4 4l16 16M9.9 5.2A10.6 10.6 0 0112 5c6.4 0 10 6 10 6a17 17 0 01-2.6 3.4M6.6 7.4A16.7 16.7 0 002 11s3.6 6 10 6a10 10 0 003.3-.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-watch" viewBox="0 0 24 24">
+        <path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+        <circle cx="19" cy="18" r="2.4" fill="none" stroke="currentColor" stroke-width="1.6" />
+      </symbol>
+      <symbol id="i-news" viewBox="0 0 24 24">
+        <path d="M4 5h13v14H4zM17 9h3v8a2 2 0 01-2 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+        <path d="M7 8h7M7 11h7M7 14h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-data" viewBox="0 0 24 24">
+        <path d="M4 19V5M4 19h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+        <path d="M8 16V9M12 16v-4M16 16v-8M20 16v-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.7" />
+        <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.6" />
+        <path d="M6 15l3-4 3 2 3-5 3 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24">
+        <path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13M10 11v6M14 11v6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24">
+        <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-download" viewBox="0 0 24 24">
+        <path d="M12 4v11M7 11l5 5 5-5M4 20h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-camera" viewBox="0 0 24 24">
+        <path d="M3 8h3l1.5-2h9L18 8h3v11H3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+        <circle cx="12" cy="13" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6" />
+      </symbol>
+      <symbol id="i-fullscreen" viewBox="0 0 24 24">
+        <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="i-log" viewBox="0 0 24 24">
+        <path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-pct" viewBox="0 0 24 24">
+        <circle cx="8" cy="8" r="2.6" fill="none" stroke="currentColor" stroke-width="1.7" />
+        <circle cx="16" cy="16" r="2.6" fill="none" stroke="currentColor" stroke-width="1.7" />
+        <path d="M18 6L6 18" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-strategy" viewBox="0 0 24 24">
+        <path d="M3 20h18M6 20V9M11 20V4M16 20v-8M21 20v-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-x" viewBox="0 0 24 24">
+        <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24">
+        <path d="M8 10l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+    </svg>
+
+    <div id="app">
+      <!-- ============================ header ============================ -->
+      <header class="app-header">
+        <div class="brand">
+          <svg viewBox="0 0 32 32" width="18" height="18">
+            <rect width="32" height="32" rx="6" fill="#1e222d" />
+            <path d="M5 21l5-6 4 3 5-9 4 5 4-3" stroke="#2962ff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span>tvclone</span>
+        </div>
+
+        <div class="symbol-search" id="symbolSearch">
+          <svg class="search-icon" width="14" height="14"><use href="#i-search"></use></svg>
+          <input id="symbolInput" type="text" placeholder="Symbol, e.g. AAPL" autocomplete="off" spellcheck="false" />
+          <div class="search-results" id="searchResults"></div>
+        </div>
+
+        <div class="btn-group" id="intervalGroup"></div>
+
+        <button class="btn icon" id="btnChartType" title="Chart type">
+          <svg width="18" height="18"><use href="#i-candle"></use></svg>
+        </button>
+
+        <div class="sep"></div>
+
+        <button class="btn" id="btnIndicators" title="Indicators (Ctrl+I)">
+          <svg width="16" height="16"><use href="#i-indicator"></use></svg>
+          Indicators
+        </button>
+        <button class="btn" id="btnPine" title="Pine Editor (Ctrl+E)">
+          <svg width="16" height="16"><use href="#i-pine"></use></svg>
+          Pine Editor
+        </button>
+        <button class="btn" id="btnAlert" title="Create alert (Ctrl+A)">
+          <svg width="16" height="16"><use href="#i-alert"></use></svg>
+          Alert
+        </button>
+        <button class="btn" id="btnReplay" title="Bar Replay">
+          <svg width="16" height="16"><use href="#i-replay"></use></svg>
+          Replay
+        </button>
+
+        <div class="header-spacer"></div>
+        <div class="header-status">
+          <span class="dot" id="feedDot"></span>
+          <span id="feedText">live</span>
+        </div>
+      </header>
+
+      <!-- ============================ body ============================ -->
+      <div class="app-body">
+        <nav class="left-rail" id="leftRail"></nav>
+
+        <div class="center-area">
+          <div class="replay-bar" id="replayBar">
+            <button class="btn icon" id="rpStepBack" title="Step back">
+              <svg width="16" height="16" style="transform: rotate(180deg)"><use href="#i-step"></use></svg>
+            </button>
+            <button class="btn icon" id="rpPlay" title="Play / Pause">
+              <svg width="16" height="16"><use href="#i-play"></use></svg>
+            </button>
+            <button class="btn icon" id="rpStep" title="Step forward">
+              <svg width="16" height="16"><use href="#i-step"></use></svg>
+            </button>
+            <div class="btn-group" id="rpSpeed">
+              <button class="btn" data-speed="2000">0.5x</button>
+              <button class="btn active" data-speed="1000">1x</button>
+              <button class="btn" data-speed="400">2.5x</button>
+              <button class="btn" data-speed="120">8x</button>
+            </div>
+            <span class="speed" id="rpPosition">—</span>
+            <input type="range" id="rpSlider" min="10" max="100" value="100" style="flex: 1; max-width: 420px" />
+            <button class="btn sm" id="rpRealtime">Go to realtime</button>
+            <button class="btn icon" id="rpClose" title="Exit replay">
+              <svg width="14" height="14"><use href="#i-x"></use></svg>
+            </button>
+          </div>
+
+          <div class="chart-toolbar" id="chartToolbar"></div>
+          <div class="chart-area" id="chartArea" data-layout="1"></div>
+        </div>
+
+        <aside class="right-sidebar" id="rightSidebar">
+          <div class="sidebar-tabs" id="sidebarTabs"></div>
+          <div class="sidebar-panel active" id="panel-watchlist" data-panel="watchlist"></div>
+          <div class="sidebar-panel" id="panel-alerts" data-panel="alerts"></div>
+          <div class="sidebar-panel" id="panel-news" data-panel="news"></div>
+          <div class="sidebar-panel" id="panel-data" data-panel="data"></div>
+        </aside>
+      </div>
+
+      <!-- ============================ bottom panel ============================ -->
+      <section class="bottom-panel" id="bottomPanel">
+        <div class="bottom-tabs" id="bottomTabs">
+          <div class="bottom-tab active" data-tab="editor">
+            <svg width="14" height="14"><use href="#i-pine"></use></svg> Pine Editor
+          </div>
+          <div class="bottom-tab" data-tab="console">
+            <svg width="14" height="14"><use href="#i-log"></use></svg> Console
+          </div>
+          <div class="bottom-tab" data-tab="strategy">
+            <svg width="14" height="14"><use href="#i-strategy"></use></svg> Strategy Tester
+          </div>
+          <div class="bottom-tab" data-tab="scripts">
+            <svg width="14" height="14"><use href="#i-chart"></use></svg> Saved Scripts
+          </div>
+          <div style="flex: 1"></div>
+          <button class="btn sm" id="editorRun" title="Add to chart (Ctrl+Enter)">Add to chart</button>
+          <button class="btn sm" id="editorSave">Save</button>
+          <button class="btn sm" id="editorNew">New</button>
+          <button class="btn sm ghost" id="editorTemplates">Templates</button>
+          <button class="btn icon sm" id="bottomExpand" title="Expand / collapse">
+            <svg width="14" height="14"><use href="#i-chevron"></use></svg>
+          </button>
+          <button class="btn icon sm" id="bottomClose" title="Close">
+            <svg width="14" height="14"><use href="#i-x"></use></svg>
+          </button>
+        </div>
+        <div class="bottom-body">
+          <div class="bottom-pane active" data-pane="editor">
+            <div class="editor-wrap">
+              <div class="editor-gutter" id="editorGutter">1</div>
+              <div class="editor-scroll" id="editorScroll">
+                <div class="editor-area" id="editorArea">
+                  <pre class="editor-highlight" id="editorHighlight"></pre>
+                  <textarea class="editor-input" id="editorInput" spellcheck="false" wrap="off"></textarea>
+                </div>
+              </div>
+              <div class="editor-errors" id="editorErrors"></div>
+            </div>
+          </div>
+          <div class="bottom-pane" data-pane="console">
+            <div class="log-list" id="logList"></div>
+          </div>
+          <div class="bottom-pane" data-pane="strategy">
+            <div id="strategyPane" style="flex: 1; overflow: auto"></div>
+          </div>
+          <div class="bottom-pane" data-pane="scripts">
+            <div id="scriptsPane" style="flex: 1; overflow: auto; padding: 10px"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="modalBackdrop">
+      <div class="modal" id="modal"></div>
+    </div>
+
+    <div class="ctx-menu" id="ctxMenu"></div>
+    <div class="toast-wrap" id="toastWrap"></div>
+    <div class="master-fs-exit" id="masterFsExit" title="Exit fullscreen (Esc)">×</div>
+
+    <script type="module" src="/js/app.js?v=3"></script>
+  </body>
+</html>

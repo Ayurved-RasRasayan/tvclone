@@ -1,0 +1,227 @@
+export const PSAI_SOURCE = `//@version=6
+indicator("PSAI - Pro Scalper AI", overlay=false)
+
+f_nr(src) => barstate.isconfirmed ? src : nz(src[1])
+
+f_tanh(x) =>
+    e2x = math.exp(2.0 * x)
+    (e2x - 1.0) / (e2x + 1.0)
+
+f_hma(src, length) =>
+    len1 = int(math.max(1, math.round(length)))
+    len2 = int(math.max(1, math.round(length / 2)))
+    len3 = int(math.max(1, math.round(math.sqrt(length))))
+    wma1 = ta.wma(src, len1)
+    wma2 = ta.wma(src, len2)
+    ta.wma(2 * wma2 - wma1, len3)
+
+cOpen   = f_nr(open)
+cHigh   = f_nr(high)
+cLow    = f_nr(low)
+cClose  = f_nr(close)
+cVolume = f_nr(volume)
+
+f_tr(_h, _l, _c) => math.max(_h - _l, math.abs(_h - nz(_c[1])), math.abs(_l - nz(_c[1])))
+sharedTR = f_tr(cHigh, cLow, cClose)
+
+useHTF_sfds          = input(false,  "Use Higher Timeframe Trend Filter?")
+htf_tf_sfds          = input("15",   "HTF")
+adxLen_sfds  = input(14, "ADX Length")
+diLen_sfds   = input(14, "DI Length")
+atrLen_sfds  = input(14, "ATR Length")
+hmaLen_sfds  = input(21, "HMA Length")
+
+momChoice_sfds    = input("Stochastic RSI", "Momentum Mode")
+stochRsiLen_sfds  = input(12, "Stoch RSI Length")
+stochKLen_sfds    = input(3,  "Stoch RSI %K Smoothing")
+fisherRsiLen_sfds = input(14, "Fisher RSI Length")
+wprLen_sfds       = input(14, "Williams %R Length")
+
+tdiRsiLen_sfds    = input(13, "TDI RSI Length")
+tdiSignalLen_sfds = input(7,  "TDI Signal Length")
+
+wTrend_sfds      = input(0.3,  "Trend Weight")
+wMomentum_sfds   = input(0.3,  "Momentum Weight")
+wVolatility_sfds = input(0.2,  "Volatility Weight")
+wVolume_sfds     = input(0.2,  "Volume Weight")
+baseUpper_sfds   = input(25.0, "Base Upper Threshold")
+baseLower_sfds   = input(-25.0,"Base Lower Threshold")
+dynMultiplier    = input(0.5,  "Dynamic Threshold Mult.")
+oscLookback_sfds = input(50,   "Oscillator Std Dev Lookback")
+
+useDynamicW_sfds    = input(true, "Use Dynamic Weighting?")
+maxVolFactor_sfds   = input(2.0,  "Max Volatility Factor")
+maxTrendFactor_sfds = input(1.5,  "Max Trend Factor")
+volLookback_sfds    = input(50,   "Volume Lookback")
+
+useAI_sfds        = input(true, "Use AI Forecast?")
+ai_length_sfds    = input(20,   "AI Length")
+ai_future_sfds    = input(2,    "AI Forecast Bars Ahead")
+aiAdjustment_sfds = input(1.5,  "AI Threshold Shift")
+aiSmoothing_sfds  = input(true, "Smooth AI Forecast?")
+useLatching_sfds  = input(true, "Enable Latching?")
+
+visualLowerRange_sfds = input(2700, "Visual Lower Range")
+visualUpperRange_sfds = input(3700, "Visual Upper Range")
+
+f_up()   => ta.change(cHigh)
+f_down() => -ta.change(cLow)
+
+f_diPlus(len) =>
+    u = f_up()
+    d = f_down()
+    pdm = na(u) ? na : (u > d and u > 0 ? u : 0)
+    nz(100 * ta.rma(pdm, len) / ta.rma(sharedTR, len))
+
+f_diMinus(len) =>
+    u = f_up()
+    d = f_down()
+    mdm = na(d) ? na : (d > u and d > 0 ? d : 0)
+    nz(100 * ta.rma(mdm, len) / ta.rma(sharedTR, len))
+
+diplus  = f_diPlus(diLen_sfds)
+diminus = f_diMinus(diLen_sfds)
+
+adxVal    = 100 * ta.rma(math.abs(diplus - diminus) / math.max(diplus + diminus, 1), adxLen_sfds)
+trendDir  = diplus > diminus ? 1.0 : diminus > diplus ? -1.0 : 0.0
+normTrend = trendDir * math.min(math.max((adxVal - 20) / 20, 0.0), 1.0)
+confirmedADX       = f_nr(adxVal)
+confirmedNormTrend = f_nr(normTrend)
+
+atrVal  = ta.rma(sharedTR, atrLen_sfds)
+normATR = atrVal / math.max(cClose, 0.0001)
+confirmedNormVolatility = f_nr(normATR * 2 - 1)
+
+f_stochRsi(len, k) =>
+    rsi  = ta.rsi(cClose, len)
+    lo   = ta.lowest(rsi, len)
+    hi   = ta.highest(rsi, len)
+    K    = ta.sma((rsi - lo) / math.max(hi - lo, 0.0001), k)
+    (K - 0.5) * 2
+
+f_fisherRsi(len) =>
+    rsi     = ta.rsi(cClose, len)
+    norm    = (rsi / 100.0) * 2 - 1
+    clipped = math.max(math.min(norm, 0.999), -0.999)
+    f_tanh(0.5 * math.log((1 + clipped) / (1 - clipped)))
+
+f_wpr(len) =>
+    hh = ta.highest(cHigh, len)
+    ll = ta.lowest(cLow, len)
+    ((hh - cClose) / math.max(hh - ll, 0.0001) * -100 + 50) / 50 - 1
+
+momentumVal = momChoice_sfds == "Stochastic RSI" ? f_stochRsi(stochRsiLen_sfds, stochKLen_sfds) : momChoice_sfds == "Fisher RSI" ? f_fisherRsi(fisherRsiLen_sfds) : f_wpr(wprLen_sfds)
+confirmedMomentum = f_nr(momentumVal)
+
+confirmedTdiRsi    = f_nr(ta.rsi(cClose, tdiRsiLen_sfds))
+confirmedTdiSignal = f_nr(ta.ema(confirmedTdiRsi, tdiSignalLen_sfds))
+
+var obvVal = 0.0
+obvVal := nz(obvVal[1]) + (cClose > cClose[1] ? cVolume : cClose < cClose[1] ? -cVolume : 0)
+obvMin = ta.lowest(obvVal, volLookback_sfds)
+obvMax = ta.highest(obvVal, volLookback_sfds)
+confirmedVolumeNorm = f_nr(((obvVal - obvMin) / math.max(obvMax - obvMin, 0.0001)) * 2 - 1)
+
+volFactor   = useDynamicW_sfds ? math.min(normATR / 0.005, maxVolFactor_sfds) : 1.0
+trendFactor = useDynamicW_sfds ? math.min(adxVal / 25.0, maxTrendFactor_sfds) : 1.0
+effWTrend      = wTrend_sfds * trendFactor
+effWVolatility = wVolatility_sfds * volFactor
+totalWeight    = math.max(effWTrend + wMomentum_sfds + effWVolatility + wVolume_sfds, 0.0001)
+
+oscillator = (effWTrend * confirmedNormTrend + wMomentum_sfds * confirmedMomentum + effWVolatility * confirmedNormVolatility + wVolume_sfds * confirmedVolumeNorm) / totalWeight * 100
+confirmedOscillator = f_nr(oscillator)
+
+oscStd         = ta.stdev(confirmedOscillator, oscLookback_sfds)
+upperThreshold = baseUpper_sfds + nz(oscStd) * dynMultiplier
+lowerThreshold = baseLower_sfds - nz(oscStd) * dynMultiplier
+confirmedUT    = f_nr(upperThreshold)
+confirmedLT    = f_nr(lowerThreshold)
+
+var aiBias = 0.0
+if useAI_sfds
+    aiVal   = ta.linreg(cClose, ai_length_sfds, 0)
+    aiSlope = aiVal - ta.linreg(cClose, ai_length_sfds, 1)
+    aiPred  = aiSmoothing_sfds ? ta.sma(aiVal + aiSlope * ai_future_sfds, 2) : aiVal + aiSlope * ai_future_sfds
+    oscLo   = ta.lowest(confirmedOscillator, ai_length_sfds)
+    oscHi   = ta.highest(confirmedOscillator, ai_length_sfds)
+    aiLo    = ta.lowest(aiPred, ai_length_sfds)
+    aiHi    = ta.highest(aiPred, ai_length_sfds)
+    oscRange = math.max(oscHi - oscLo, 0.001)
+    aiRange  = math.max(aiHi - aiLo, 0.001)
+    aiOsc    = ((aiPred - aiLo) / aiRange) * oscRange + oscLo
+    aiBias  := aiOsc - (baseUpper_sfds + baseLower_sfds) / 2
+confirmedAiBias = f_nr(aiBias)
+
+adjUT = useAI_sfds ? confirmedUT + (confirmedAiBias > 0 ? aiAdjustment_sfds : 0) : confirmedUT
+adjLT = useAI_sfds ? confirmedLT + (confirmedAiBias < 0 ? -aiAdjustment_sfds : 0) : confirmedLT
+confirmedAdjUT = f_nr(adjUT)
+confirmedAdjLT = f_nr(adjLT)
+
+localHMA = f_hma(cClose, hmaLen_sfds)
+trendHMA = cClose > localHMA ? 1.0 : cClose < localHMA ? -1.0 : 0.0
+confirmedTrendHMA = f_nr(trendHMA)
+
+htfTrend = 0.0
+if useHTF_sfds
+    htfHMA = request.security(syminfo.tickerid, htf_tf_sfds, ta.wma(close, hmaLen_sfds))
+    htfTrend := na(htfHMA) ? 0.0 : close > htfHMA ? 1.0 : close < htfHMA ? -1.0 : 0.0
+confirmedHTFTrend = f_nr(htfTrend)
+
+condSBuy  = confirmedOscillator > confirmedAdjUT and confirmedTrendHMA > 0 and confirmedADX > 20
+condSSell = confirmedOscillator < confirmedAdjLT and confirmedTrendHMA < 0 and confirmedADX > 20
+condEBuy  = confirmedOscillator > baseUpper_sfds and confirmedOscillator < confirmedAdjUT
+condESell = confirmedOscillator < baseLower_sfds and confirmedOscillator > confirmedAdjLT
+
+immSig = condSBuy ? "S.Buy" : condSSell ? "S.Sel" : condEBuy ? "E.Buy" : condESell ? "E.Sel" : "None"
+
+var storedState = "Neut"
+if useLatching_sfds and barstate.isconfirmed
+    if storedState == "Neut"
+        storedState := condEBuy ? "EBuy" : condESell ? "ESel" : condSBuy ? "Long" : condSSell ? "Shrt" : storedState
+    else if storedState == "EBuy"
+        storedState := condSBuy ? "Long" : not condEBuy ? "Neut" : storedState
+    else if storedState == "Long"
+        storedState := condSSell ? "Shrt" : condESell ? "ESel" : storedState
+    else if storedState == "ESel"
+        storedState := condSSell ? "Shrt" : not condESell ? "Neut" : storedState
+    else if storedState == "Shrt"
+        storedState := condSBuy ? "Long" : condEBuy ? "EBuy" : storedState
+
+storedSig = storedState == "Long" ? "S.Buy" : storedState == "Shrt" ? "S.Sel" : storedState == "EBuy" ? "E.Buy" : storedState == "ESel" ? "E.Sel" : "None"
+
+visualCenter = (visualLowerRange_sfds + visualUpperRange_sfds) / 2
+visualSpan   = visualUpperRange_sfds - visualLowerRange_sfds
+vizScale     = visualSpan / 100
+signalBuyY   = visualLowerRange_sfds - 40
+signalSellY  = visualUpperRange_sfds + 40
+
+map_to_pane(val) => visualCenter + val * vizScale
+
+mappedOsc    = map_to_pane(confirmedOscillator)
+mappedUpper  = map_to_pane(confirmedUT)
+mappedLower  = map_to_pane(confirmedLT)
+mappedZero   = map_to_pane(0)
+mappedAiBias = map_to_pane(confirmedAiBias)
+
+plotOsc   = plot(mappedOsc,   color=mappedOsc >= visualCenter ? #00ff00 : #00ff0000, linewidth=2, title="Composite Oscillator")
+plotZero  = plot(mappedZero,  color=#808080, linewidth=1, title="Zero Line")
+plotUpper = plot(mappedUpper, color=#800080, linewidth=1, title="Dynamic Upper Threshold")
+plotLower = plot(mappedLower, color=#800080, linewidth=1, title="Dynamic Lower Threshold")
+
+activeSig = useLatching_sfds ? storedSig : immSig
+fillColor = activeSig == "S.Buy" ? color.new(#00ff00, 80) : activeSig == "S.Sel" ? color.new(#ff0000, 80) : activeSig == "E.Buy" ? color.new(#00ff00, 80) : activeSig == "E.Sel" ? color.new(#800000, 80) : color.new(#0000ff, 90)
+
+fill(plotUpper, plotLower, color=fillColor, title="Band Background")
+
+plotshape(useLatching_sfds and storedState == "Long" ? signalBuyY  : na, style=shape.triangleup,   color=#00ff00, title="Latched Strong Buy",  location=location.absolute, size=size.tiny)
+plotshape(useLatching_sfds and storedState == "Shrt" ? signalSellY : na, style=shape.triangledown, color=#ff0000, title="Latched Strong Sell", location=location.absolute, size=size.tiny)
+plotshape(useLatching_sfds and storedState == "EBuy" ? signalBuyY  : na, style=shape.diamond,      color=#00ff00, title="Latched Early Buy",   location=location.absolute, size=size.tiny)
+plotshape(useLatching_sfds and storedState == "ESel" ? signalSellY : na, style=shape.diamond,      color=#800000, title="Latched Early Sell",  location=location.absolute, size=size.tiny)
+
+plot(useAI_sfds ? mappedAiBias : na, color=#ffffff, title="AI Bias")
+
+var psai_lab = na
+if barstate.islast
+    if not na(psai_lab)
+        label.delete(psai_lab)
+    psai_lab := label.new(bar_index + 10, visualUpperRange_sfds + 20, "PSAI (" + timeframe.period + ")", style=label.style_label_left, color=color.new(#800080, 50), textcolor=#ffffff, size=size.small)`;

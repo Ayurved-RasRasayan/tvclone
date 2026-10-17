@@ -1,0 +1,963 @@
+//@version=6
+indicator("(15) Down finale", overlay=false)
+
+// ── SLIM BUILD + LSP ─────────────────────────────────────────────
+// Visualisations for OBOS, MCDX, QQE and RSI have been removed.
+// Their underlying calculations are retained so the Combined Signal
+// Engine continues to synthesise all six sub-indicator scores
+// (OBOS, PSAI, MCDX, T3, QQE, LSP).
+// Visible panes: PSAI (2700-3700), T3 (300-2300),
+//                LSP (4500-8000), Combined (3500-6000).
+// Dashboard table removed per request.
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 1: PURE HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
+
+// Freeze value on unconfirmed bars (uses prior confirmed bar's value)
+f_nr(src) => barstate.isconfirmed ? src : nz(src[1])
+
+f_tanh(x) =>
+    e2x = math.exp(2.0 * x)
+    (e2x - 1.0) / (e2x + 1.0)
+
+f_dema(src, len) =>
+    e1 = ta.ema(src, len)
+    2 * e1 - ta.ema(e1, len)
+
+f_tema(src, len) =>
+    e1 = ta.ema(src, len)
+    e2 = ta.ema(e1, len)
+    3 * e1 - 3 * e2 + ta.ema(e2, len)
+
+f_gd(src, len, vf) =>
+    e1 = ta.ema(src, len)
+    e1 * (1 + vf) - ta.ema(e1, len) * vf
+
+f_t3(src, len, vf) => f_gd(f_gd(f_gd(src, len, vf), len, vf), len, vf)
+
+f_ma(src, len, type) =>
+    switch type
+        "SMA"    => ta.sma(src, len)
+        "EMA"    => ta.ema(src, len)
+        "DEMA"   => f_dema(src, len)
+        "TEMA"   => f_tema(src, len)
+        "RMA"    => ta.rma(src, len)
+        "WMA"    => ta.wma(src, len)
+        "HMA"    => ta.hma(src, len)
+        "T3"     => f_t3(src, len, 0.7)
+        "ALMA"   => ta.alma(src, len, 0, 0.6)
+        "LINREG" => ta.linreg(src, len, 0)
+        "VWMA"   => ta.vwma(src, len)
+
+f_map_range(value, orig_min, orig_max, new_min, new_max) =>
+    new_min + (value - orig_min) / (orig_max - orig_min) * (new_max - new_min)
+
+f_get_color(val, mid) =>
+    diff = val - mid
+    if diff > 196
+        #33ff00fc
+    else if diff > 160
+        #00ff0080
+    else if diff > 100
+        #00ff003d
+    else if diff > 50
+        #1e9b254d
+    else if diff > 0
+        #1dcaff4d
+    else if diff < -196
+        #ff0000
+    else if diff < -160
+        #ff000080
+    else if diff < -100
+        #ff00004d
+    else if diff < -50
+        #7715154d
+    else
+        #e651004d
+
+f_create_label(id, y_pos, col, txt, tooltip_text) =>
+    ret_id = id
+    if barstate.islast
+        label.delete(id)
+        ret_id := label.new(bar_index + 10, y_pos, txt, style=label.style_label_left, color=color.new(col, 50), textcolor=color.white, size=size.small, tooltip=tooltip_text, xloc=xloc.bar_index)
+    ret_id
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 2: CONFIRMED OHLCV  (single computation, reused everywhere)
+// ═══════════════════════════════════════════════════════════════
+
+cOpen   = f_nr(open)
+cHigh   = f_nr(high)
+cLow    = f_nr(low)
+cClose  = f_nr(close)
+cVolume = f_nr(volume)
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 3: SHARED CALCULATIONS  (computed once, used by multiple sections)
+// ═══════════════════════════════════════════════════════════════
+
+// True range — previously computed three separate times across PSAI / MCDX helpers
+f_tr(_h, _l, _c) => math.max(_h - _l, math.abs(_h - nz(_c[1])), math.abs(_l - nz(_c[1])))
+
+sharedTR  = f_tr(cHigh, cLow, cClose)       // reused by PSAI (ATR) and DI helpers
+
+// HMA (reused by PSAI trend & HTF branch)
+f_hma(src, length) =>
+    wma1 = ta.wma(src, length)
+    wma2 = ta.wma(src, math.round(length / 2))
+    ta.wma(2 * wma2 - wma1, math.round(math.sqrt(length)))
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 4: VISIBILITY CONTROLS
+// ═══════════════════════════════════════════════════════════════
+
+grp_vis = "====================Visibility Controls===================="
+showPSAI = input.bool(true, "Show PSAI Indicator",             group=grp_vis)
+showT3   = input.bool(true, "Show T3 Oscillator",              group=grp_vis)
+showT3b  = input.bool(true, "Show T3 Oscillator (1m)",         group=grp_vis)
+showLSP  = input.bool(true, "Show LSP Indicator",              group=grp_vis)
+showComb = input.bool(true, "Show Combined Signals",           group=grp_vis)
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 5: OBOS CALCULATION  (visualisation removed — score feeds Combined engine)
+// ═══════════════════════════════════════════════════════════════
+GROUP_MAIN = "========= OBOS Indicator ========="
+
+low_range_obos  = input.float(4000, "Lower Range", group=GROUP_MAIN, tooltip="Lower boundary of the indicator pane scale.")
+high_range_obos = input.float(6000, "Upper Range", group=GROUP_MAIN, tooltip="Upper boundary of the indicator pane scale.")
+
+obos_len   = input.int(9, "Length", group=GROUP_MAIN, tooltip="OBOS calculation length.")
+
+obos_midpoint   = (high_range_obos + low_range_obos) / 2
+obos_half_span  = (high_range_obos - low_range_obos) / 2
+mapVal_obos(val) => obos_midpoint + val / 200 * obos_half_span
+
+// Core calculation — confirmed OHLC (no repaint on the live bar)
+obos_ys1   = (cHigh + cLow + cClose * 2) / 4
+obos_rk3   = ta.ema(obos_ys1, obos_len)
+obos_rk4   = ta.stdev(obos_ys1, obos_len)
+obos_rk5   = obos_rk4 > 0 ? (obos_ys1 - obos_rk3) * 100 / obos_rk4 : 0.0
+obos_rk6   = ta.ema(obos_rk5, obos_len)
+obos_up    = ta.ema(obos_rk6, obos_len)
+obos_dn    = ta.ema(obos_up, obos_len)
+
+// Ribbon state — direction from fast/slow lines, thickness self-normalised
+// against its own 100-bar widest point (25 z-point fallback for warm-up)
+obos_bull     = obos_up > obos_dn
+obos_sep      = math.abs(obos_up - obos_dn)
+obos_sep_max  = ta.highest(obos_sep, 100)
+obos_denom    = nz(obos_sep_max, 0.0) > 5.0 ? obos_sep_max : 25.0
+obos_mag      = math.min(obos_sep / math.max(obos_denom, 0.0001), 1.0)
+
+// OBOS score for the Combined engine (recalibrated for the ribbon build)
+// Direction: fast line above slow line. Strength: self-normalised ribbon
+// thickness (the old fixed /100 divisor kept the base pinned near ±0.35
+// regardless of trend quality). Fresh crosses still add a one-bar kick;
+// both lines beyond the ±100 z-scale fade the score toward neutral.
+obos_dir       = obos_bull ? 1.0 : -1.0
+obos_base      = obos_dir * (0.3 + obos_mag * 0.4)
+obosBullCross  = ta.crossover( obos_up, obos_dn)
+obosBearCross  = ta.crossunder(obos_up, obos_dn)
+obos_cross     = obosBullCross ? 1.0 : obosBearCross ? -1.0 : 0.0
+obos_revert    = math.min(obos_up, obos_dn) > 100 ? -0.5 : math.max(obos_up, obos_dn) < -100 ? 0.5 : 0.0
+ttsa_score     = math.max(math.min(obos_base + obos_cross * 0.3 + obos_revert, 1.0), -1.0)
+
+// SECTION 6: PSAI INDICATOR  (visual range 2700-3700)
+// ═══════════════════════════════════════════════════════════════
+
+grp_psai = "====================PSAI Settings===================="
+useHTF_sfds          = input.bool(false,  "Use Higher Timeframe Trend Filter?", inline="HTF", group=grp_psai)
+htf_tf_sfds          = input.timeframe("15", "HTF",                             inline="HTF", group=grp_psai)
+useMACDFilter_sfds   = input.bool(false, "Use MACD Filter?",                   group=grp_psai)
+usePinbarFilter_sfds = input.bool(false, "Use Pinbar Filter?",                 group=grp_psai)
+
+adxLen_sfds  = input.int(14, "ADX Length", group=grp_psai)
+diLen_sfds   = input.int(14, "DI Length",  group=grp_psai)
+atrLen_sfds  = input.int(14, "ATR Length", group=grp_psai)
+hmaLen_sfds  = input.int(21, "HMA Length", group=grp_psai)
+
+momChoice_sfds   = input.string("Stochastic RSI", "Momentum Mode", options=["Stochastic RSI","Fisher RSI","Williams %R"], group=grp_psai)
+stochRsiLen_sfds = input.int(12, "Stoch RSI Length",       group="Stoch RSI")
+stochKLen_sfds   = input.int(3,  "Stoch RSI %K Smoothing", group="Stoch RSI")
+stochDLen_sfds   = input.int(3,  "Stoch RSI %D Smoothing", group="Stoch RSI")
+fisherRsiLen_sfds= input.int(14, "Fisher RSI Length",      group="Fisher RSI")
+wprLen_sfds      = input.int(14, "Williams %R Length",     group="Williams %R")
+
+tdiRsiLen_sfds    = input.int(13, "TDI RSI Length",    group=grp_psai)
+tdiSignalLen_sfds = input.int(7,  "TDI Signal Length", group=grp_psai)
+
+wTrend_sfds      = input.float(0.3,  "Trend Weight",              step=0.1, group=grp_psai)
+wMomentum_sfds   = input.float(0.3,  "Momentum Weight",           step=0.1, group=grp_psai)
+wVolatility_sfds = input.float(0.2,  "Volatility Weight",         step=0.1, group=grp_psai)
+wVolume_sfds     = input.float(0.2,  "Volume Weight",             step=0.1, group=grp_psai)
+baseUpper_sfds   = input.float(25.0, "Base Upper Threshold",      step=0.1, group=grp_psai)
+baseLower_sfds   = input.float(-25.0,"Base Lower Threshold",      step=0.1, group=grp_psai)
+dynMultiplier    = input.float(0.5,  "Dynamic Threshold Mult.",   step=0.1, group=grp_psai)
+oscLookback_sfds = input.int(50,     "Oscillator Std Dev Lookback",          group=grp_psai)
+
+useHysteresis_sfds  = input.bool(true,  "Use Adaptive Hysteresis?",         group=grp_psai)
+baseHystGap_sfds    = input.float(1.0,  "Base Hysteresis Gap",    step=0.1, group=grp_psai)
+hystMultiplier_sfds = input.float(1.0,  "Hysteresis Volatility Multiplier", step=0.1, group=grp_psai)
+
+useDynamicW_sfds   = input.bool(true,  "Use Dynamic Weighting?",    group=grp_psai)
+maxVolFactor_sfds  = input.float(2.0,  "Max Volatility Factor",     step=0.1, group=grp_psai)
+maxTrendFactor_sfds= input.float(1.5,  "Max Trend Factor",          step=0.1, group=grp_psai)
+volLookback_sfds   = input.int(50,     "Volume Lookback",            group=grp_psai)
+
+useAI_sfds        = input.bool(true,  "Use AI Forecast?",           group=grp_psai)
+ai_length_sfds    = input.int(20,     "AI Length", minval=1,         group=grp_psai)
+ai_future_sfds    = input.int(2,      "AI Forecast Bars Ahead", minval=1, group=grp_psai)
+aiAdjustment_sfds = input.float(1.5,  "AI Threshold Shift",         step=0.1, group=grp_psai)
+aiSmoothing_sfds  = input.bool(true,  "Smooth AI Forecast?",        group=grp_psai)
+useLatching_sfds  = input.bool(true,  "Enable Latching?",           group=grp_psai)
+
+dashboardSizeOption = input.string("Tiny", "Dashboard Text Size", options=["Tiny","Small","Normal","Large"], group="Dashboard Settings")
+textSizeEnum_sfds   = dashboardSizeOption == "Tiny" ? size.tiny : dashboardSizeOption == "Small" ? size.tiny : dashboardSizeOption == "Normal" ? size.normal : size.large
+
+visualLowerRange_sfds = input.float(2700, "Visual Lower Range", minval=-10000, group="Visual Range Settings")
+visualUpperRange_sfds = input.float(3700, "Visual Upper Range", minval=-10000, group="Visual Range Settings")
+
+// ── PSAI: DI / ADX  (uses shared TR via sharedTR) ──────────────
+f_dirmov(len) =>
+    up   = ta.change(cHigh)
+    down = -ta.change(cLow)
+    plusDM  = na(up)   ? na : (up > down   and up   > 0 ? up   : 0)
+    minusDM = na(down) ? na : (down > up   and down > 0 ? down : 0)
+    truerange = ta.rma(sharedTR, len)
+    plusVal   = nz(100 * ta.rma(plusDM,  len) / truerange)
+    minusVal  = nz(100 * ta.rma(minusDM, len) / truerange)
+    [plusVal, minusVal]
+
+[diplus, diminus] = f_dirmov(diLen_sfds)
+adxVal    = 100 * ta.rma(math.abs(diplus - diminus) / math.max(diplus + diminus, 1), adxLen_sfds)
+trendDir  = diplus > diminus ? 1.0 : diminus > diplus ? -1.0 : 0.0
+normTrend = trendDir * math.min(math.max((adxVal - 20) / 20, 0.0), 1.0)
+confirmedADX       = f_nr(adxVal)
+confirmedNormTrend = f_nr(normTrend)
+
+// ── PSAI: ATR / Volatility ──────────────────────────────────────
+atrVal  = ta.rma(sharedTR, atrLen_sfds)
+normATR = atrVal / cClose
+confirmedNormVolatility = f_nr(normATR * 2 - 1)
+
+// ── PSAI: Momentum ─────────────────────────────────────────────
+f_stochRsi(len, k, d) =>
+    rsi  = ta.rsi(cClose, len)
+    lo   = ta.lowest(rsi, len)
+    hi   = ta.highest(rsi, len)
+    K    = ta.sma((rsi - lo) / math.max(hi - lo, 0.0001), k)
+    (K - 0.5) * 2
+
+f_fisherRsi(len) =>
+    rsi      = ta.rsi(cClose, len)
+    norm     = (rsi / 100.0) * 2 - 1
+    clipped  = math.max(math.min(norm, 0.999), -0.999)
+    f_tanh(0.5 * math.log((1 + clipped) / (1 - clipped)))
+
+f_wpr(len) =>
+    hh = ta.highest(cHigh, len)
+    ll = ta.lowest(cLow, len)
+    ((hh - cClose) / math.max(hh - ll, 0.0001) * -100 + 50) / 50 - 1
+
+momentumVal = switch momChoice_sfds
+    "Stochastic RSI" => f_stochRsi(stochRsiLen_sfds, stochKLen_sfds, stochDLen_sfds)
+    "Fisher RSI"     => f_fisherRsi(fisherRsiLen_sfds)
+    "Williams %R"    => f_wpr(wprLen_sfds)
+confirmedMomentum = f_nr(momentumVal)
+
+// ── PSAI: TDI ──────────────────────────────────────────────────
+confirmedTdiRsi    = f_nr(ta.rsi(cClose, tdiRsiLen_sfds))
+confirmedTdiSignal = f_nr(ta.ema(confirmedTdiRsi, tdiSignalLen_sfds))
+
+// ── PSAI: OBV / Volume ─────────────────────────────────────────
+var float obvVal = 0.0
+obvVal := nz(obvVal[1]) + (cClose > cClose[1] ? cVolume : cClose < cClose[1] ? -cVolume : 0)
+obvMin = ta.lowest(obvVal, volLookback_sfds)
+obvMax = ta.highest(obvVal, volLookback_sfds)
+confirmedVolumeNorm = f_nr(((obvVal - obvMin) / math.max(obvMax - obvMin, 0.0001)) * 2 - 1)
+
+// ── PSAI: Dynamic Weighting ────────────────────────────────────
+volFactor   = useDynamicW_sfds ? math.min(normATR / 0.005, maxVolFactor_sfds)  : 1.0
+trendFactor = useDynamicW_sfds ? math.min(adxVal  / 25.0,  maxTrendFactor_sfds): 1.0
+
+effWTrend      = wTrend_sfds      * trendFactor
+effWVolatility = wVolatility_sfds * volFactor
+totalWeight    = effWTrend + wMomentum_sfds + effWVolatility + wVolume_sfds
+
+oscillator = (effWTrend * confirmedNormTrend + wMomentum_sfds * confirmedMomentum + effWVolatility * confirmedNormVolatility + wVolume_sfds * confirmedVolumeNorm) / totalWeight * 100
+confirmedOscillator = f_nr(oscillator)
+
+oscStd          = ta.stdev(confirmedOscillator, oscLookback_sfds)
+upperThreshold  = baseUpper_sfds + oscStd * dynMultiplier
+lowerThreshold  = baseLower_sfds - oscStd * dynMultiplier
+confirmedUT     = f_nr(upperThreshold)
+confirmedLT     = f_nr(lowerThreshold)
+
+// ── PSAI: AI Forecast ──────────────────────────────────────────
+var float aiBias = 0.0
+if useAI_sfds
+    aiVal     = ta.linreg(cClose, ai_length_sfds, 0)
+    aiSlope   = aiVal - ta.linreg(cClose, ai_length_sfds, 1)
+    aiPred    = aiSmoothing_sfds ? ta.sma(aiVal + aiSlope * ai_future_sfds, 2) : aiVal + aiSlope * ai_future_sfds
+    oscLo     = ta.lowest(confirmedOscillator, ai_length_sfds)
+    oscHi     = ta.highest(confirmedOscillator, ai_length_sfds)
+    aiLo      = ta.lowest(aiPred, ai_length_sfds)
+    aiHi      = ta.highest(aiPred, ai_length_sfds)
+    oscRange  = math.max(oscHi - oscLo, 0.001)
+    aiRange   = math.max(aiHi - aiLo,  0.001)
+    aiOsc     = ((aiPred - aiLo) / aiRange) * oscRange + oscLo
+    aiBias   := aiOsc - (baseUpper_sfds + baseLower_sfds) / 2
+confirmedAiBias = f_nr(aiBias)
+
+adjUT = useAI_sfds ? confirmedUT + (confirmedAiBias > 0 ?  aiAdjustment_sfds : 0) : confirmedUT
+adjLT = useAI_sfds ? confirmedLT + (confirmedAiBias < 0 ? -aiAdjustment_sfds : 0) : confirmedLT
+confirmedAdjUT = f_nr(adjUT)
+confirmedAdjLT = f_nr(adjLT)
+
+// ── PSAI: HMA Trend ────────────────────────────────────────────
+localHMA       = f_hma(cClose, hmaLen_sfds)
+trendHMA       = cClose > localHMA ? 1.0 : cClose < localHMA ? -1.0 : 0.0
+confirmedTrendHMA = f_nr(trendHMA)
+
+htfTrend = 0.0
+if useHTF_sfds
+    htfHMA   = request.security(syminfo.tickerid, htf_tf_sfds, f_hma(cClose, hmaLen_sfds), lookahead=barmerge.lookahead_off)
+    htfTrend := na(htfHMA) ? 0.0 : cClose > htfHMA ? 1.0 : cClose < htfHMA ? -1.0 : 0.0
+confirmedHTFTrend = f_nr(htfTrend)
+
+// ── PSAI: Signal Generation ────────────────────────────────────
+condSBuy  = confirmedOscillator > confirmedAdjUT and confirmedTrendHMA > 0 and (not useHTF_sfds or confirmedHTFTrend > 0) and confirmedADX > 20
+condSSell = confirmedOscillator < confirmedAdjLT and confirmedTrendHMA < 0 and (not useHTF_sfds or confirmedHTFTrend < 0) and confirmedADX > 20
+condEBuy  = confirmedOscillator > baseUpper_sfds  and confirmedOscillator < confirmedAdjUT
+condESell = confirmedOscillator < baseLower_sfds  and confirmedOscillator > confirmedAdjLT
+
+immSig = condSBuy ? "S.Buy" : condSSell ? "S.Sel" : condEBuy ? "E.Buy" : condESell ? "E.Sel" : "None"
+
+var string storedState = "Neut"
+if useLatching_sfds and barstate.isconfirmed
+    if storedState == "Neut"
+        storedState := condEBuy ? "EBuy" : condESell ? "ESel" : condSBuy ? "Long" : condSSell ? "Shrt" : storedState
+    else if storedState == "EBuy"
+        storedState := condSBuy ? "Long" : not condEBuy ? "Neut" : storedState
+    else if storedState == "Long"
+        storedState := condSSell ? "Shrt" : condESell ? "ESel" : storedState
+    else if storedState == "ESel"
+        storedState := condSSell ? "Shrt" : not condESell ? "Neut" : storedState
+    else if storedState == "Shrt"
+        storedState := condSBuy ? "Long" : condEBuy ? "EBuy" : storedState
+
+storedSig = storedState == "Long" ? "S.Buy" : storedState == "Shrt" ? "S.Sel" : storedState == "EBuy" ? "E.Buy" : storedState == "ESel" ? "E.Sel" : "None"
+
+// ── PSAI: Visualisation ────────────────────────────────────────
+visualCenter  = (visualLowerRange_sfds + visualUpperRange_sfds) / 2
+visualSpan    = visualUpperRange_sfds - visualLowerRange_sfds
+vizScale      = visualSpan / 100
+signalBuyY    = visualLowerRange_sfds - 40
+signalSellY   = visualUpperRange_sfds + 40
+
+map_to_pane(val) => visualCenter + val * vizScale
+
+mappedOsc    = map_to_pane(confirmedOscillator)
+mappedUpper  = map_to_pane(confirmedUT)
+mappedLower  = map_to_pane(confirmedLT)
+mappedZero   = map_to_pane(0)
+mappedAiBias = map_to_pane(confirmedAiBias)
+
+plotOsc    = plot(showPSAI ? mappedOsc   : na, color=mappedOsc >= visualCenter ? color.green : color.red, linewidth=2, title="Composite Oscillator", display=display.none)
+plotZero   = plot(showPSAI ? mappedZero  : na, color=color.gray,   title="Zero Line")
+plotUpper  = plot(showPSAI ? mappedUpper : na, color=color.purple, linewidth=1, title="Dynamic Upper Threshold")
+plotLower  = plot(showPSAI ? mappedLower : na, color=color.purple, linewidth=1, title="Dynamic Lower Threshold")
+
+activeSig  = useLatching_sfds ? storedSig : immSig
+fillColor  = activeSig == "S.Buy" ? color.new(color.green,  80) : activeSig == "S.Sel" ? color.new(color.red,    80) : activeSig == "E.Buy" ? color.new(color.lime,   80) : activeSig == "E.Sel" ? color.new(color.maroon, 80) : color.new(color.blue, 90)
+
+fill(plotUpper, plotLower, color=showPSAI ? fillColor : na, title="Band Background")
+
+// PSAI immediate (non-latched) shapes removed to reduce plot count — latching is ON by default
+// plotshape(showPSAI and not useLatching_sfds and immSig == "S.Buy" ? signalBuyY  : na, style=shape.circle,       color=color.green,  title="Imm Strong Buy",  location=location.absolute, size=size.tiny)
+// plotshape(showPSAI and not useLatching_sfds and immSig == "S.Sel" ? signalSellY : na, style=shape.circle,       color=color.red,    title="Imm Strong Sell", location=location.absolute, size=size.tiny)
+// plotshape(showPSAI and not useLatching_sfds and immSig == "E.Buy" ? signalBuyY  : na, style=shape.cross,        color=color.lime,   title="Imm Early Buy",   location=location.absolute, size=size.tiny)
+// plotshape(showPSAI and not useLatching_sfds and immSig == "E.Sel" ? signalSellY : na, style=shape.cross,        color=color.maroon, title="Imm Early Sell",  location=location.absolute, size=size.tiny)
+
+plotshape(showPSAI and useLatching_sfds and storedState == "Long" ? signalBuyY  : na, style=shape.triangleup,   color=color.green,  title="Latched Strong Buy",  location=location.absolute, size=size.tiny, display=display.none)
+plotshape(showPSAI and useLatching_sfds and storedState == "Shrt" ? signalSellY : na, style=shape.triangledown, color=color.red,    title="Latched Strong Sell", location=location.absolute, size=size.tiny, display=display.none)
+plotshape(showPSAI and useLatching_sfds and storedState == "EBuy" ? signalBuyY  : na, style=shape.diamond,      color=color.lime,   title="Latched Early Buy",   location=location.absolute, size=size.tiny, display=display.none)
+plotshape(showPSAI and useLatching_sfds and storedState == "ESel" ? signalSellY : na, style=shape.diamond,      color=color.maroon, title="Latched Early Sell",  location=location.absolute, size=size.tiny, display=display.none)
+
+plot(showPSAI and useAI_sfds ? mappedAiBias : na, color=color.blue, title="AI Bias")
+
+var label psai_lab = na
+if showPSAI
+    psai_lab := f_create_label(psai_lab, visualUpperRange_sfds + 20, color.purple, "PSAI (" + timeframe.period + ")", "Pro Scalper AI - Chart Timeframe")
+else if barstate.islast
+    label.delete(psai_lab)
+    psai_lab := na
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 7: MCDX CALCULATION  (visualisation removed — score feeds Combined engine)
+// ═══════════════════════════════════════════════════════════════
+
+grp_mcdx = "====================MCDX Settings===================="
+RSIBaseBanker      = input.float(50.0, "Banker Base",          minval=0.1, maxval=100, group=grp_mcdx)
+RSIPeriodBanker    = input.int(50,     "Banker RSI Period",    minval=10, maxval=100,  group=grp_mcdx)
+RSIBaseHotMoney    = input.float(30.0, "Hot Money RSI Base",   minval=0.1, maxval=100, group=grp_mcdx)
+RSIPeriodHotMoney  = input.int(40,     "Hot Money RSI Period", minval=10, maxval=100,  group=grp_mcdx)
+SensitivityBanker  = input.float(1.5,  "Sensitivity Banker",   minval=0.1, maxval=10,  group=grp_mcdx)
+SensitivityHotMoney= input.float(0.7,  "Sensitivity Hot Money",minval=0.1, maxval=10,  group=grp_mcdx)
+bankerPeriodMA     = input.int(10,     "MA Banker Period",     minval=1,  maxval=260,  group=grp_mcdx)
+multiplier         = input.float(50.0, "Output Multiplier",    minval=1.0, maxval=50.0, step=0.5, group=grp_mcdx)
+timeFrame          = input.timeframe("", "Timeframe", group=grp_mcdx, tooltip="Default is current chart timeframe.")
+
+f_calc_mcdx() =>
+    rawBanker   = SensitivityBanker   * (ta.rsi(close, RSIPeriodBanker)   - RSIBaseBanker)
+    rawHotMoney = SensitivityHotMoney * (ta.rsi(close, RSIPeriodHotMoney) - RSIBaseHotMoney)
+    banker      = math.min(math.max(rawBanker,   0), 20) * multiplier
+    hotMoney    = math.min(math.max(rawHotMoney, 0), 20) * multiplier
+    [banker, hotMoney, ta.sma(banker, bankerPeriodMA)]
+
+[RSI_Banker, RSI_HotMoney, BankerMA] = request.security(syminfo.tickerid, timeFrame, f_calc_mcdx(), lookahead=barmerge.lookahead_off)
+
+baseLevel = 20 * multiplier
+
+// MCDX visualisation removed — RSI_Banker / RSI_HotMoney / BankerMA / baseLevel
+// remain available for the Combined Signal Engine.
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 8: T3 OSCILLATOR  (range: low=300, high=2300)
+// Replaced with BackQuant "Normalised T3 Oscillator" logic.
+// BackQuant's plotosc range [-0.5, +0.5] is rescaled onto [range_min, range_max]
+// so the new Normalised T3 occupies the exact same pane range as the previous T3.
+// MA plot color set to pure black per user request.
+// ═══════════════════════════════════════════════════════════════
+
+grp_t3    = "====================T3 Settings===================="
+range_min = input.int(-1000,  "Range Low",  group=grp_t3)
+range_max = input.int(2000, "Range High", group=grp_t3)
+tf_1      = input.timeframe("", "Timeframe", group=grp_t3)
+len_1     = input.int(2,    "T3 Period",  group=grp_t3)
+src_1     = input.source(close, "Source", group=grp_t3)
+vf_1      = input.float(0.7,"Vol Factor", group=grp_t3)
+np_1      = input.int(50,   "Norm Period",group=grp_t3)
+ma_len_1  = input.int(18,   "MA Period",  group=grp_t3)
+ma_type_1 = input.string("SMA", "MA Type", options=["SMA","EMA","DEMA","TEMA","RMA","WMA","HMA","T3","ALMA","LINREG","VWMA"], group=grp_t3)
+show_osc_1 = input.bool(true, "Show Oscillator",    group=grp_t3)
+show_ma_1  = input.bool(true, "Show MA",             group=grp_t3)
+show_stat_1= input.bool(true, "Show Static Levels",  group=grp_t3)
+
+// ── BackQuant Normalised T3 calculation ──
+// subject = T3(source, len, vf)
+// plotosc = (subject - lowest) / (highest - lowest) - 0.50   → range [-0.5, +0.5]
+// norm    = plotosc + 0.50                                    → range [0, 1] (for Combined engine)
+// ma      = f_ma(norm, ma_len, ma_type)                       → range [0, 1]
+f_fetch_t3(src, t3_len, vf, np, ma_len, ma_type) =>
+    subject = f_t3(src, t3_len, vf)
+    lowest  = ta.lowest(subject, np)
+    highest = ta.highest(subject, np)
+    plotosc = (highest != lowest) ? (subject - lowest) / (highest - lowest) - 0.50 : 0.0
+    norm    = plotosc + 0.50
+    [plotosc, norm, f_ma(norm, ma_len, ma_type)]
+
+[plotosc_1, osc_raw_1, ma_raw_1] = request.security(syminfo.tickerid, tf_1, f_fetch_t3(src_1, len_1, vf_1, np_1, ma_len_1, ma_type_1), gaps=barmerge.gaps_on)
+
+// ── Rescale BackQuant's [-0.5, +0.5] range onto [range_min, range_max] ──
+// Same pane range as the previous T3 indicator.
+t3_range_size = range_max - range_min
+new_mid       = (range_min + range_max) / 2
+osc_1         = osc_raw_1 * t3_range_size + range_min
+ma_1          = ma_raw_1  * t3_range_size + range_min
+
+// ── BackQuant conditional oscillator plot color (driven by plotosc_1) ──
+var plotcol = #1dcaff4d
+if plotosc_1 > 0 and plotosc_1 < 0.125
+    plotcol := #1dcaff4d
+if plotosc_1 > 0 and plotosc_1 > 0.125
+    plotcol := #1e9b254d
+if plotosc_1 > 0 and plotosc_1 > 0.25
+    plotcol := #00ff003d
+if plotosc_1 > 0 and plotosc_1 > 0.4
+    plotcol := #00ff0080
+if plotosc_1 > 0 and plotosc_1 > 0.49
+    plotcol := #33ff00fc
+if plotosc_1 < 0 and plotosc_1 > -0.125
+    plotcol := #e651004d
+if plotosc_1 < 0 and plotosc_1 < -0.125
+    plotcol := #7715154d
+if plotosc_1 < 0 and plotosc_1 < -0.25
+    plotcol := #ff00004d
+if plotosc_1 < 0 and plotosc_1 < -0.4
+    plotcol := #ff000080
+if plotosc_1 < 0 and plotosc_1 < -0.49
+    plotcol := #ff0000
+
+// ── Static level colors (BackQuant palette) ──
+obcol   = #ff0000fc
+oscol   = #00ff00fc
+midcol  = #ffffff4d
+
+// ── Oscillator columns from new_mid (midline of pane range) ──
+plot(showT3 and show_osc_1 ? osc_1 : na, "T3 Normalised", plotcol, 2, plot.style_columns, histbase=new_mid)
+
+// ── MA plot — pure black per user request ──
+plot(showT3 and show_ma_1 ? ma_1 : na, "MA T3", color=color.black, linewidth=2)
+
+// ── OB/OS bands — BackQuant static levels mapped to pane range ──
+// BackQuant levels: +0.5 (OB Upper), +0.4 (OB Lower), -0.4 (OS Upper), -0.5 (OS Lower)
+// Mapped via: pane_val = range_min + (plotosc + 0.5) * t3_range_size
+ob_upper_val = range_max                              // plotosc = +0.5
+ob_lower_val = range_min + 0.9 * t3_range_size         // plotosc = +0.4
+os_upper_val = range_min + 0.1 * t3_range_size         // plotosc = -0.4
+os_lower_val = range_min                              // plotosc = -0.5
+
+obupper = plot(showT3 and show_stat_1 ? ob_upper_val : na, "+OB Upper", obcol)
+oblower = plot(showT3 and show_stat_1 ? ob_lower_val : na, "+OB Lower", obcol)
+osupper = plot(showT3 and show_stat_1 ? os_upper_val : na, "-OS Upper", oscol)
+oslower = plot(showT3 and show_stat_1 ? os_lower_val : na, "-OS Lower", oscol)
+fill(obupper, oblower, #7715154d, "OB Fill")
+fill(osupper, oslower, #1e9b254d, "OS Fill")
+
+// ── Mid line (BackQuant "0 Line") ──
+hline(showT3 ? new_mid : na, "0 Line", midcol, hline.style_solid)
+
+// ── Timeframe label ──
+var label lab_1 = na
+txt_1 = tf_1 == "" ? "Chart" : tf_1 + " minutes"
+if showT3
+    lab_1 := f_create_label(lab_1, new_mid, color.blue, txt_1, "T3 timeframe")
+else if barstate.islast
+    label.delete(lab_1)
+    lab_1 := na
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 8b: T3 OSCILLATOR (1m timeframe)  (range: low=-4500, high=-1500)
+// Duplicate of the BackQuant Normalised T3 Oscillator with timeframe="1".
+// Pane range placed BELOW the existing T3 range ([-1000, 2000]) so the
+// two oscillators render side-by-side in the same pane without overlap.
+// ═══════════════════════════════════════════════════════════════
+
+grp_t3b     = "====================T3 Settings (1m)===================="
+range_min_b = input.int(-4500,  "Range Low",  group=grp_t3b)
+range_max_b = input.int(-1500,  "Range High", group=grp_t3b)
+tf_2        = input.timeframe("1", "Timeframe", group=grp_t3b)
+len_2       = input.int(2,    "T3 Period",  group=grp_t3b)
+src_2       = input.source(close, "Source", group=grp_t3b)
+vf_2        = input.float(0.7,"Vol Factor", group=grp_t3b)
+np_2        = input.int(50,   "Norm Period",group=grp_t3b)
+ma_len_2    = input.int(18,   "MA Period",  group=grp_t3b)
+ma_type_2   = input.string("SMA", "MA Type", options=["SMA","EMA","DEMA","TEMA","RMA","WMA","HMA","T3","ALMA","LINREG","VWMA"], group=grp_t3b)
+show_osc_2  = input.bool(true, "Show Oscillator",    group=grp_t3b)
+show_ma_2   = input.bool(true, "Show MA",             group=grp_t3b)
+show_stat_2 = input.bool(true, "Show Static Levels",  group=grp_t3b)
+
+// ── Pull the BackQuant Normalised T3 calc from the 1m timeframe ──
+[plotosc_2, osc_raw_2, ma_raw_2] = request.security(syminfo.tickerid, tf_2, f_fetch_t3(src_2, len_2, vf_2, np_2, ma_len_2, ma_type_2), gaps=barmerge.gaps_on)
+
+// ── Rescale BackQuant's [-0.5, +0.5] range onto [range_min_b, range_max_b] ──
+// Sits entirely below the existing T3 pane range so the two do not overlap.
+t3_range_size_b = range_max_b - range_min_b
+new_mid_b       = (range_min_b + range_max_b) / 2
+osc_2           = osc_raw_2 * t3_range_size_b + range_min_b
+ma_2            = ma_raw_2  * t3_range_size_b + range_min_b
+
+// ── BackQuant conditional oscillator plot color (driven by plotosc_2) ──
+var plotcol_2 = #1dcaff4d
+if plotosc_2 > 0 and plotosc_2 < 0.125
+    plotcol_2 := #1dcaff4d
+if plotosc_2 > 0 and plotosc_2 > 0.125
+    plotcol_2 := #1e9b254d
+if plotosc_2 > 0 and plotosc_2 > 0.25
+    plotcol_2 := #00ff003d
+if plotosc_2 > 0 and plotosc_2 > 0.4
+    plotcol_2 := #00ff0080
+if plotosc_2 > 0 and plotosc_2 > 0.49
+    plotcol_2 := #33ff00fc
+if plotosc_2 < 0 and plotosc_2 > -0.125
+    plotcol_2 := #e651004d
+if plotosc_2 < 0 and plotosc_2 < -0.125
+    plotcol_2 := #7715154d
+if plotosc_2 < 0 and plotosc_2 < -0.25
+    plotcol_2 := #ff00004d
+if plotosc_2 < 0 and plotosc_2 < -0.4
+    plotcol_2 := #ff000080
+if plotosc_2 < 0 and plotosc_2 < -0.49
+    plotcol_2 := #ff0000
+
+// ── Static level colors (BackQuant palette) ──
+obcol_2   = #ff0000fc
+oscol_2   = #00ff00fc
+midcol_2  = #ffffff4d
+
+// ── Oscillator columns from new_mid_b (midline of the 1m pane range) ──
+plot(showT3b and show_osc_2 ? osc_2 : na, "T3 1m Normalised", plotcol_2, 2, plot.style_columns, histbase=new_mid_b)
+
+// ── MA plot — pure black to match the existing T3 ──
+plot(showT3b and show_ma_2 ? ma_2 : na, "MA T3 1m", color=color.black, linewidth=2)
+
+// ── OB/OS bands — BackQuant static levels mapped to the 1m pane range ──
+// BackQuant levels: +0.5 (OB Upper), +0.4 (OB Lower), -0.4 (OS Upper), -0.5 (OS Lower)
+// Mapped via: pane_val = range_min_b + (plotosc + 0.5) * t3_range_size_b
+ob_upper_val_b = range_max_b                              // plotosc = +0.5
+ob_lower_val_b = range_min_b + 0.9 * t3_range_size_b       // plotosc = +0.4
+os_upper_val_b = range_min_b + 0.1 * t3_range_size_b       // plotosc = -0.4
+os_lower_val_b = range_min_b                               // plotosc = -0.5
+
+obupper_b = plot(showT3b and show_stat_2 ? ob_upper_val_b : na, "+OB Upper 1m", obcol_2)
+oblower_b = plot(showT3b and show_stat_2 ? ob_lower_val_b : na, "+OB Lower 1m", obcol_2)
+osupper_b = plot(showT3b and show_stat_2 ? os_upper_val_b : na, "-OS Upper 1m", oscol_2)
+oslower_b = plot(showT3b and show_stat_2 ? os_lower_val_b : na, "-OS Lower 1m", oscol_2)
+fill(obupper_b, oblower_b, #7715154d, "OB Fill 1m")
+fill(osupper_b, oslower_b, #1e9b254d, "OS Fill 1m")
+
+// ── Mid line (BackQuant "0 Line") for the 1m sub-pane ──
+hline(showT3b ? new_mid_b : na, "0 Line 1m", midcol_2, hline.style_solid)
+
+// ── Timeframe label ──
+var label lab_2 = na
+txt_2 = tf_2 == "" ? "Chart" : tf_2 + " minutes"
+if showT3b
+    lab_2 := f_create_label(lab_2, new_mid_b, color.blue, txt_2, "T3 1m timeframe")
+else if barstate.islast
+    label.delete(lab_2)
+    lab_2 := na
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 9: QQE CALCULATION  (visualisation removed — score feeds Combined engine)
+// ═══════════════════════════════════════════════════════════════
+
+grp_qqe          = "====================QQE Settings===================="
+upper_range_oiw  = input.float( 1000, "Upper Range", group=grp_qqe)
+lower_range_oiw  = input.float(-3000, "Lower Range", group=grp_qqe)
+RSI_Period_qqe   = input.int(14,    "RSI Length",      group=grp_qqe)
+SF_qqe           = input.int(5,     "RSI Smoothing",   group=grp_qqe)
+QQE_qqe          = input.float(4.238,"Fast QQE Factor",group=grp_qqe)
+ThreshHold_qqe   = input.float(10,  "Thresh-hold",     group=grp_qqe)
+sQQEx_qqe        = input.bool(false,"Show Smooth RSI, QQE Signal crosses",     group=grp_qqe)
+sQQEz_qqe        = input.bool(false,"Show Smooth RSI Zero crosses",            group=grp_qqe)
+sQQEc_qqe        = input.bool(false,"Show Smooth RSI Thresh Hold Channel Exits",group=grp_qqe)
+src_qqe          = input.source(close, "RSI Source",   group=grp_qqe)
+tf_qqe           = input.timeframe("", "Timeframe (empty = chart)",            group=grp_qqe)
+qqe_line_color   = input.color(color.rgb(243,40,33),  "QQE Line Color",        group=grp_qqe)
+smooth_rsi_color = input.color(color.rgb(6,160,27),   "Smooth RSI Line Color", group=grp_qqe)
+
+f_calc_qqe_core(src_q) =>
+    var float longband_q  = 0.0
+    var float shortband_q = 0.0
+    var int   trend_q     = 1
+    Wilders   = RSI_Period_qqe * 2 - 1
+    RsiMa_q   = ta.ema(ta.rsi(src_q, RSI_Period_qqe), SF_qqe)
+    dar_q     = ta.ema(ta.ema(math.abs(RsiMa_q[1] - RsiMa_q), Wilders), Wilders) * QQE_qqe
+    longband_q  := RsiMa_q[1] > longband_q[1]  and RsiMa_q > longband_q[1]  ? math.max(longband_q[1],  RsiMa_q - dar_q) : RsiMa_q - dar_q
+    shortband_q := RsiMa_q[1] < shortband_q[1] and RsiMa_q < shortband_q[1] ? math.min(shortband_q[1], RsiMa_q + dar_q) : RsiMa_q + dar_q
+    cross_1_q   = ta.cross(longband_q[1], RsiMa_q)
+    trend_q    := ta.cross(RsiMa_q, shortband_q[1]) ? 1 : cross_1_q ? -1 : nz(trend_q[1], 1)
+    [trend_q == 1 ? longband_q : shortband_q, RsiMa_q]
+
+[FastAtrRsiTL_qqe, RsiMa_qqe] = request.security(syminfo.tickerid, tf_qqe == "" ? timeframe.period : tf_qqe, f_calc_qqe_core(src_qqe), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+
+var int QQExlong  = 0
+QQExlong  := sQQEx_qqe and FastAtrRsiTL_qqe < RsiMa_qqe ? QQExlong  + 1 : 0
+var int QQExshort = 0
+QQExshort := sQQEx_qqe and FastAtrRsiTL_qqe > RsiMa_qqe ? QQExshort + 1 : 0
+var int QQEzlong  = 0
+QQEzlong  := sQQEz_qqe and RsiMa_qqe >= 50              ? QQEzlong  + 1 : 0
+var int QQEzshort = 0
+QQEzshort := sQQEz_qqe and RsiMa_qqe <  50              ? QQEzshort + 1 : 0
+var int QQEclong  = 0
+QQEclong  := sQQEc_qqe and RsiMa_qqe > 50 + ThreshHold_qqe ? QQEclong  + 1 : 0
+var int QQEcshort = 0
+QQEcshort := sQQEc_qqe and RsiMa_qqe < 50 - ThreshHold_qqe ? QQEcshort + 1 : 0
+
+// QQE visualisation removed — RsiMa_qqe / FastAtrRsiTL_qqe remain
+// available for the Combined Signal Engine.
+
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 10: RSI CALCULATION  (visualisation removed — retained for downstream use)
+// ═══════════════════════════════════════════════════════════════
+
+grp_rsi = "====================RSI Settings===================="
+rsiLengthInput = input.int(14, "RSI Length", minval=1, group=grp_rsi)
+rsiSourceInput = input.source(close, "Source", group=grp_rsi)
+highRange_rsi  = input.float(8400, "High Range", group=grp_rsi)
+lowRange_rsi   = input.float(5400, "Low Range",  group=grp_rsi)
+
+change_rsi = ta.change(rsiSourceInput)
+up_rsi     = ta.rma(math.max(change_rsi, 0), rsiLengthInput)
+down_rsi   = ta.rma(-math.min(change_rsi, 0), rsiLengthInput)
+rsi_val    = down_rsi == 0 ? 100 : up_rsi == 0 ? 0 : 100 - (100 / (1 + up_rsi / down_rsi))
+confirmedRSI = f_nr(rsi_val)
+
+// RSI visualisation removed — confirmedRSI retained for downstream use.
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 11: LSP — LIQUIDITY SENTIMENT PROFILE  (visual range 6000-8000)
+// ═══════════════════════════════════════════════════════════════
+
+grp_lsp        = "====================LSP Settings===================="
+inp_length_lsp        = input.int(14, "LSP Length",     minval=1, group=grp_lsp)
+inp_smooth_lsp        = input.int(5,  "LSP Smoothing",  minval=1, group=grp_lsp)
+show_crossings_lsp    = input.bool(false, "Show LSP Crossings?", group=grp_lsp)
+
+grp_lsp_vr     = "---------- LSP Visual Range ----------"
+lsp_range_lo   = input.float(4500, "LSP Lower Range", minval=-10000, maxval=10000, step=100, group=grp_lsp_vr, tooltip="Visual Y-axis lower bound for LSP. LSP raw value -100 maps here.")
+lsp_range_hi   = input.float(8000, "LSP Upper Range", minval=-10000, maxval=10000, step=100, group=grp_lsp_vr, tooltip="Visual Y-axis upper bound for LSP. LSP raw value +100 maps here.")
+
+// ── LSP Color palette (user-tunable) ──────────────────────────
+c_bull_strong_lsp = input.color(#29ff7b, "LSP Bull Strong", group=grp_lsp)
+c_bull_weak_lsp   = input.color(#29ff7f, "LSP Bull Weak",   group=grp_lsp)
+c_bear_strong_lsp = input.color(#ff6685, "LSP Bear Strong", group=grp_lsp)
+c_bear_weak_lsp   = input.color(#ff668f, "LSP Bear Weak",   group=grp_lsp)
+c_neutral_lsp     = input.color(#455A64, "LSP Neutral",     group=grp_lsp)
+
+// ── LSP Calculation (uses confirmed OHLCV → no repaint) ───────
+body_size_lsp         = math.abs(cClose - cOpen)
+upper_wick_lsp        = cHigh - math.max(cClose, cOpen)
+lower_wick_lsp        = math.min(cClose, cOpen) - cLow
+bull_pressure_raw_lsp = (cClose > cOpen ? body_size_lsp : 0) + lower_wick_lsp
+bear_pressure_raw_lsp = (cClose < cOpen ? body_size_lsp : 0) + upper_wick_lsp
+vol_weighted_bull_lsp = bull_pressure_raw_lsp * cVolume
+vol_weighted_bear_lsp = bear_pressure_raw_lsp * cVolume
+sum_bull_lsp          = ta.sma(vol_weighted_bull_lsp, inp_length_lsp) * inp_length_lsp
+sum_bear_lsp          = ta.sma(vol_weighted_bear_lsp, inp_length_lsp) * inp_length_lsp
+total_flow_lsp        = sum_bull_lsp + sum_bear_lsp
+lsp_raw               = total_flow_lsp != 0 ? (sum_bull_lsp - sum_bear_lsp) / total_flow_lsp * 100 : 0.0
+lsp_signal_raw        = ta.ema(lsp_raw, inp_smooth_lsp)
+confirmedLSP          = f_nr(lsp_raw)
+confirmedLSPSignal    = f_nr(lsp_signal_raw)
+
+// ── LSP Visualisation ─────────────────────────────────────────
+lsp_mid   = (lsp_range_lo + lsp_range_hi) / 2
+lsp_span  = lsp_range_hi - lsp_range_lo
+lsp_scale = lsp_span / 200   // LSP raw range is approximately [-100, +100]
+map_lsp(val) => lsp_mid + val * lsp_scale
+
+lsp_raw_mapped    = map_lsp(confirmedLSP)
+lsp_signal_mapped = map_lsp(confirmedLSPSignal)
+lsp_upper_mapped  = map_lsp(50)
+lsp_lower_mapped  = map_lsp(-50)
+lsp_zero_mapped   = map_lsp(0)
+
+is_bullish_lsp       = confirmedLSP > 0
+is_growing_lsp       = confirmedLSP > nz(confirmedLSP[1], confirmedLSP)
+is_above_signal_lsp  = confirmedLSP > confirmedLSPSignal
+
+col_dynamic_lsp     = is_bullish_lsp ? (is_growing_lsp ? c_bull_strong_lsp : c_bull_weak_lsp) : (is_growing_lsp ? c_bear_weak_lsp : c_bear_strong_lsp)
+fill_core_color_lsp = is_above_signal_lsp ? (is_growing_lsp ? color.new(c_bull_strong_lsp, 40) : color.new(c_bull_weak_lsp, 60)) : (is_growing_lsp ? color.new(c_bear_weak_lsp, 60) : color.new(c_bear_strong_lsp, 40))
+fill_base_color_lsp = is_bullish_lsp ? color.new(c_bull_strong_lsp, 90) : color.new(c_bear_strong_lsp, 90)
+
+cross_up_lsp   = ta.crossover(confirmedLSP, confirmedLSPSignal)
+cross_down_lsp = ta.crossunder(confirmedLSP, confirmedLSPSignal)
+
+hline(showLSP ? lsp_upper_mapped : na, "LSP Upper Zone",  color=#546E7A, linestyle=hline.style_dotted)
+hline(showLSP ? lsp_lower_mapped : na, "LSP Lower Zone",  color=#546E7A, linestyle=hline.style_dotted)
+
+p_lsp_zero = plot(showLSP ? lsp_zero_mapped    : na, "LSP Zero Base",     color=color.new(#90A4AE, 50), display=display.none)
+plot(showLSP ? lsp_raw_mapped                  : na, "LSP Intensity Area", style=plot.style_area, color=color.new(col_dynamic_lsp, 80), display=display.none)
+p_lsp_line = plot(showLSP ? lsp_raw_mapped     : na, "LSP Line",          color=col_dynamic_lsp, linewidth=2, display=display.none)
+p_lsp_sig  = plot(showLSP ? lsp_signal_mapped  : na, "LSP Signal Line",   color=#FFEB3B, linewidth=1, display=display.none)
+fill(p_lsp_line, p_lsp_sig,  color=showLSP ? fill_core_color_lsp : na, title="LSP Trend Intensity Core")
+fill(p_lsp_line, p_lsp_zero, color=showLSP ? fill_base_color_lsp : na, title="LSP Volume Depth")
+
+plotshape(showLSP and show_crossings_lsp and cross_up_lsp   ? lsp_range_lo - 50 : na, title="LSP Buy Signal",  style=shape.triangleup,   location=location.absolute, color=#00E676, size=size.small)
+plotshape(showLSP and show_crossings_lsp and cross_down_lsp ? lsp_range_hi + 50 : na, title="LSP Sell Signal", style=shape.triangledown, location=location.absolute, color=#FF1744, size=size.small)
+
+var label lsp_lab = na
+if showLSP
+    lsp_lab := f_create_label(lsp_lab, lsp_mid, color.navy, "LSP (" + timeframe.period + ")", "Liquidity Sentiment Profile - Chart Timeframe | Length: " + str.tostring(inp_length_lsp) + " | Value: " + str.tostring(confirmedLSP, "#.##"))
+else if barstate.islast
+    label.delete(lsp_lab)
+    lsp_lab := na
+
+// ═══════════════════════════════════════════════════════════════
+// SECTION 12: COMBINED SIGNAL ENGINE
+// ═══════════════════════════════════════════════════════════════
+//
+// Synthesises all six sub-indicators (OBOS, PSAI, MCDX, T3, QQE, LSP)
+// into a single directional score, then generates BUY / SELL
+// signals when a configurable confluence of indicators agrees.
+//
+// Scoring model
+//   Each indicator is normalised to [-1, +1]:
+//     +1.0 = maximally bullish   -1.0 = maximally bearish
+//   A weighted average is computed (weights are user-tunable),
+//   then scaled to [-5, +5] for easier threshold interpretation.
+//
+// Confluence gate
+//   A signal only fires when at least N out of 6 indicators
+//   agree with the signal direction (N is configurable).
+//
+// Latching (optional)
+//   When enabled, a BUY signal persists until a SELL signal
+//   fires (and vice versa), preventing premature reversion
+//   to NEUTRAL on minor score fluctuations.
+// ═══════════════════════════════════════════════════════════════
+
+grp_comb = "====================Combined Signal Engine===================="
+wOBOS_comb      = input.float(1.0,  "OBOS Weight",              minval=0, step=0.1, group=grp_comb, tooltip="Weight for the OBOS Indicator contribution")
+wPSAI_comb      = input.float(1.5,  "PSAI Weight",              minval=0, step=0.1, group=grp_comb, tooltip="Weight for the Pro Scalper AI contribution — highest default weight because PSAI already multi-factors trend, momentum, volatility and volume")
+wMCDX_comb      = input.float(1.0,  "MCDX Weight",              minval=0, step=0.1, group=grp_comb, tooltip="Weight for the Money Flow (Banker / Hot Money) contribution")
+wT3_comb        = input.float(0.8,  "T3 Weight",                minval=0, step=0.1, group=grp_comb, tooltip="Weight for the normalised T3 oscillator contribution")
+wQQE_comb       = input.float(1.2,  "QQE Weight",               minval=0, step=0.1, group=grp_comb, tooltip="Weight for the QQE (Quantitative Qualitative Estimation) contribution")
+wLSP_comb       = input.float(1.0,  "LSP Weight",               minval=0, step=0.1, group=grp_comb, tooltip="Weight for the Liquidity Sentiment Profile contribution")
+strongThresh    = input.float(2.5,  "Strong Signal Threshold",  minval=0.5, step=0.1, group=grp_comb, tooltip="Combined score must exceed this for STRONG BUY/SELL signals (scale: -5 to +5)")
+weakThresh      = input.float(1.0,  "Weak Signal Threshold",    minval=0.1, step=0.1, group=grp_comb, tooltip="Combined score must exceed this for regular BUY/SELL signals")
+minConfluence   = input.int(3,      "Min Confluence Count",      minval=1, maxval=6, group=grp_comb, tooltip="Minimum number of indicators that must agree with signal direction (out of 6). Higher = fewer but more reliable signals")
+useCombLatch    = input.bool(true,  "Enable Signal Latching?",   group=grp_comb, tooltip="When ON, a BUY/SELL signal persists until the opposing signal fires. Prevents whipsaw back to NEUTRAL")
+grp_comb_vr  = "---------- Combined Visual Range ----------"
+combRange_lo    = input.float(3500, "Combined Lower Range", minval=-10000, maxval=10000, step=100, group=grp_comb_vr, tooltip="Visual Y-axis lower bound for the combined signal area. Score -5 maps here.")
+combRange_hi    = input.float(6000, "Combined Upper Range", minval=-10000, maxval=10000, step=100, group=grp_comb_vr, tooltip="Visual Y-axis upper bound for the combined signal area. Score +5 maps here.")
+markerOffset     = input.int(120,    "Signal Marker Offset",  minval=20, maxval=500, step=10, group=grp_comb_vr, tooltip="Distance above/below the range to place buy/sell arrow markers")
+
+// ── OBOS Score (replaces TTSA Score) ────────────────────────────
+// Direction from obos_up vs obos_dn; extra boost on
+// crossover bars and reversion from OB/OS zones
+// ttsa_score is kept as the variable name for downstream compatibility
+
+// ── PSAI Score ────────────────────────────────────────────────
+// Directly reads the latched PSAI state machine
+psai_score  = storedState == "Long" ? 1.0  :
+              storedState == "Shrt" ? -1.0 :
+              storedState == "EBuy" ? 0.6  :
+              storedState == "ESel" ? -0.6 : 0.0
+
+// ── MCDX Score ────────────────────────────────────────────────
+// Banker above MA = accumulation (bullish); hot-money normalised
+// against base level adds a momentum component
+banker_above = nz(RSI_Banker) > nz(BankerMA) ? 0.6 : -0.4
+hot_norm     = math.max(math.min((nz(RSI_HotMoney) / nz(baseLevel, 1000) - 0.5) * 2, 1.0), -1.0)
+mcdx_score   = math.max(math.min(banker_above + hot_norm * 0.3, 1.0), -1.0)
+
+// ── T3 Score ──────────────────────────────────────────────────
+// Normalised T3 direction (osc vs MA) plus zone bonus for
+// extreme readings that suggest mean-reversion setups
+t3_dir      = nz(osc_raw_1, 0.5) > nz(ma_raw_1, 0.5) ? 0.5 : -0.5
+t3_zone     = nz(osc_raw_1, 0.5) < 0.2 ? 0.3 : nz(osc_raw_1, 0.5) > 0.8 ? -0.3 : 0.0
+t3_score    = math.max(math.min(t3_dir + t3_zone, 1.0), -1.0)
+
+// ── QQE Score ─────────────────────────────────────────────────
+// Trend direction from Smooth RSI vs QQE trailing line, plus
+// a bias component derived from how far RSI is from the 50-line
+qqe_trend   = nz(RsiMa_qqe, 50) > nz(FastAtrRsiTL_qqe, 50) ? 0.5 : -0.5
+qqe_bias    = math.max(math.min((nz(RsiMa_qqe, 50) - 50) / 50, 1.0), -1.0) * 0.4
+qqe_score   = math.max(math.min(qqe_trend + qqe_bias, 1.0), -1.0)
+
+// ── LSP Score ─────────────────────────────────────────────────
+// LSP raw lives on [-100, +100]. Divide by 100 to normalise onto
+// [-1, +1]. Add a small boost when LSP is on the same side as its
+// signal line (trend confirmation), so fresh cross bars don't
+// count as full-strength signals.
+lsp_dir        = confirmedLSP > 0 ? 1.0 : -1.0
+lsp_strength   = math.max(math.min(math.abs(confirmedLSP) / 100.0, 1.0), 0.0)
+lsp_confirm    = (confirmedLSP > confirmedLSPSignal ? 0.1 : -0.1) * (math.abs(confirmedLSP - confirmedLSPSignal) > 1.0 ? 1.0 : 0.0)
+lsp_score      = math.max(math.min(lsp_dir * (0.4 + lsp_strength * 0.5) + lsp_confirm, 1.0), -1.0)
+
+// ── Weighted Combined Score ───────────────────────────────────
+totalW_comb   = wOBOS_comb + wPSAI_comb + wMCDX_comb + wT3_comb + wQQE_comb + wLSP_comb
+rawW_sum      = wOBOS_comb * ttsa_score + wPSAI_comb * psai_score + wMCDX_comb * mcdx_score + wT3_comb * t3_score + wQQE_comb * qqe_score + wLSP_comb * lsp_score
+rawScore      = totalW_comb > 0 ? rawW_sum / totalW_comb : 0.0
+// Scale from [-1, +1] to [-5, +5] for clearer threshold interpretation
+combinedScore = rawScore * 5.0
+
+// ── Confluence Count ──────────────────────────────────────────
+// How many indicators are bullish / bearish (threshold: |score| > 0.2)
+bull_1 = ttsa_score  >  0.2 ? 1 : 0
+bull_2 = psai_score  >  0.2 ? 1 : 0
+bull_3 = mcdx_score  >  0.2 ? 1 : 0
+bull_4 = t3_score    >  0.2 ? 1 : 0
+bull_5 = qqe_score   >  0.2 ? 1 : 0
+bull_6 = lsp_score   >  0.2 ? 1 : 0
+bullCount = bull_1 + bull_2 + bull_3 + bull_4 + bull_5 + bull_6
+bear_1 = ttsa_score  < -0.2 ? 1 : 0
+bear_2 = psai_score  < -0.2 ? 1 : 0
+bear_3 = mcdx_score  < -0.2 ? 1 : 0
+bear_4 = t3_score    < -0.2 ? 1 : 0
+bear_5 = qqe_score   < -0.2 ? 1 : 0
+bear_6 = lsp_score   < -0.2 ? 1 : 0
+bearCount = bear_1 + bear_2 + bear_3 + bear_4 + bear_5 + bear_6
+confBull  = bullCount >= minConfluence
+confBear  = bearCount >= minConfluence
+
+// ── Immediate (unlatched) Signal ──────────────────────────────
+string immCombSignal = "NEUTRAL"
+if combinedScore > strongThresh and confBull
+    immCombSignal := "STRONG BUY"
+else if combinedScore > weakThresh and confBull
+    immCombSignal := "BUY"
+else if combinedScore < -strongThresh and confBear
+    immCombSignal := "STRONG SELL"
+else if combinedScore < -weakThresh and confBear
+    immCombSignal := "SELL"
+
+// ── Latched Signal ────────────────────────────────────────────
+// Persists in the current direction until an opposing signal fires
+var string latchState = "NEUTRAL"
+if useCombLatch and barstate.isconfirmed
+    if latchState == "NEUTRAL"
+        if immCombSignal == "STRONG BUY" or immCombSignal == "BUY"
+            latchState := immCombSignal == "STRONG BUY" ? "STRONG BUY" : "BUY"
+        else if immCombSignal == "STRONG SELL" or immCombSignal == "SELL"
+            latchState := immCombSignal == "STRONG SELL" ? "STRONG SELL" : "SELL"
+    else if latchState == "BUY" or latchState == "STRONG BUY"
+        if immCombSignal == "STRONG SELL" or immCombSignal == "SELL"
+            latchState := immCombSignal == "STRONG SELL" ? "STRONG SELL" : "SELL"
+        else if immCombSignal == "STRONG BUY"
+            latchState := "STRONG BUY"
+    else if latchState == "SELL" or latchState == "STRONG SELL"
+        if immCombSignal == "STRONG BUY" or immCombSignal == "BUY"
+            latchState := immCombSignal == "STRONG BUY" ? "STRONG BUY" : "BUY"
+        else if immCombSignal == "STRONG SELL"
+            latchState := "STRONG SELL"
+
+activeCombSignal = useCombLatch ? latchState : immCombSignal
+
+// ── Signal Change Detection ───────────────────────────────────
+var string prevCombSignal = "NEUTRAL"
+isNewBuy     = (activeCombSignal == "BUY" or activeCombSignal == "STRONG BUY") and not (prevCombSignal == "BUY" or prevCombSignal == "STRONG BUY")
+isNewSell    = (activeCombSignal == "SELL" or activeCombSignal == "STRONG SELL") and not (prevCombSignal == "SELL" or prevCombSignal == "STRONG SELL")
+isStrongBuy  = isNewBuy  and activeCombSignal == "STRONG BUY"
+isStrongSell = isNewSell and activeCombSignal == "STRONG SELL"
+
+if barstate.isconfirmed
+    prevCombSignal := activeCombSignal
+
+// ── Visualisation Helpers ─────────────────────────────────────
+comb_mid   = (combRange_lo + combRange_hi) / 2
+comb_span  = combRange_hi - combRange_lo
+map_comb(val) => comb_mid + val / 5 * (comb_span / 2)
+
+mappedScore   = map_comb(combinedScore)
+mappedStrBuy  = map_comb(strongThresh)
+mappedWkBuy   = map_comb(weakThresh)
+mappedStrSell = map_comb(-strongThresh)
+mappedWkSell  = map_comb(-weakThresh)
+mappedZeroComb = map_comb(0)
+
+// ── Combined Score Line ───────────────────────────────────────
+scoreColor = combinedScore > 0 ? (combinedScore > strongThresh ? color.new(#00E676, 0) : color.new(#00E676, 40)) : (combinedScore < -strongThresh ? color.new(#FF1744, 0) : color.new(#FF1744, 40))
+plot(showComb ? mappedScore : na, "Combined Score", color=scoreColor, linewidth=2, style=plot.style_line)
+
+// Combined histogram fill removed to reduce plot count — score line provides sufficient visual
+
+// ── Threshold Lines ───────────────────────────────────────────
+// Threshold lines: strong levels + zero only (weak levels removed to reduce plot count)
+hline(showComb ? mappedStrBuy  : na, "Strong Buy Level",  color.new(#00E676, 60), linestyle=hline.style_dashed)
+hline(showComb ? mappedZeroComb : na, "Zero",              color.new(color.gray, 70), linestyle=hline.style_dotted)
+hline(showComb ? mappedStrSell : na, "Strong Sell Level", color.new(#FF1744, 60), linestyle=hline.style_dashed)
+
+// ── Signal Markers ────────────────────────────────────────────
+//plotshape(showComb and isStrongBuy                                              ? combRange_lo - markerOffset : na, "Strong Buy Marker",  shape.triangleup,   location.absolute, #00E676, size=size.normal, text="SB", textcolor=color.white)
+//plotshape(showComb and isNewBuy and not isStrongBuy                             ? combRange_lo - markerOffset : na, "Buy Marker",         shape.triangleup,   location.absolute, #69F0AE, size=size.small,  text="B",  textcolor=color.white)
+//plotshape(showComb and isStrongSell                                             ? combRange_hi + markerOffset : na, "Strong Sell Marker", shape.triangledown, location.absolute, #FF1744, size=size.normal, text="SS", textcolor=color.white)
+//plotshape(showComb and isNewSell and not isStrongSell                           ? combRange_hi + markerOffset : na, "Sell Marker",        shape.triangledown, location.absolute, #EF9A9A, size=size.small,  text="S",  textcolor=color.white)
+
+// ── Signal Background ─────────────────────────────────────────
+//bgCol = activeCombSignal == "STRONG BUY" ? color.new(#00E676, 88) : activeCombSignal == "BUY" ? color.new(#00E676, 93) : activeCombSignal == "STRONG SELL" ? color.new(#FF1744, 88) : activeCombSignal == "SELL" ? color.new(#FF1744, 93) : na
+//bgcolor(showComb ? bgCol : na, title="Combined Signal BG")
+
+// ── Label on Last Bar ─────────────────────────────────────────
+var label comb_lab = na
+if showComb
+    comb_lab := f_create_label(comb_lab, comb_mid, color.orange, "COMBINED", "Score: " + str.tostring(combinedScore, "#.##") + " | Signal: " + activeCombSignal + " | Bulls: " + str.tostring(bullCount) + " Bears: " + str.tostring(bearCount))
+else if barstate.islast
+    label.delete(comb_lab)
+    comb_lab := na

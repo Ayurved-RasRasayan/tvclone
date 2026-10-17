@@ -1,0 +1,56 @@
+//@version=6
+// Pine v6 demo — exercises the new language features:
+//   * @version=6 directive
+//   * type / UDT with fields + a method
+//   * enum
+//   * ta.supertrend + ta.dmi + ta.cog + ta.cum
+//   * chart.* context accessors
+//   * import / export declarations
+// To load: open the Pine Editor tab, paste, click "Add to chart".
+indicator("Pine v6 demo", overlay = true, dynamic_requests = true, calc_bars_count = 1000)
+
+// ---- User-defined type with a method ----
+type Swing
+    float high = 0.0
+    float low  = 0.0
+    float span() => high - low
+
+// ---- Enum ----
+enum Trend
+    UP   = 1
+    DOWN = -1
+    FLAT = 0
+
+// ---- Manual import/export (these compile cleanly even with no real lib) ----
+import user/lib/1/PineLib as pl
+export double(float x) => x * 2
+
+// ---- Supertrend gives us a [value, direction] tuple ----
+[st, dir] = ta.supertrend(3, 10)
+plot(st, color = dir == 1 ? color.green : color.red, linewidth = 2, title = "Supertrend")
+
+// ---- DMI gives us [DI+, DI-, ADX] ----
+[plus, minus, adx] = ta.dmi(14, 14)
+plot(adx, color = color.orange, title = "ADX")
+
+// ---- Centre of Gravity oscillator on close, normalised view ----
+cog = ta.cog(close, 14)
+plot(cog, color = color.purple, title = "COG")
+
+// ---- Cumulative volume delta using ta.cum ----
+delta = close - close[1]
+cumDelta = ta.cum(delta)
+plot(cumDelta, color = color.blue, title = "Cumulative Delta")
+
+// ---- UDT usage ----
+var Swing swing = Swing.new(high, low)
+plot(swing.span(), color = color.aqua, title = "Swing span")
+
+// ---- Enum access ----
+trendColor = dir == 1 ? Trend.UP : dir == -1 ? Trend.DOWN : Trend.FLAT
+bgcolor(trendColor == Trend.UP ? color.new(color.green, 92) : trendColor == Trend.DOWN ? color.new(color.red, 92) : na)
+
+// ---- chart.* context accessors ----
+var label lastVisible = na
+if barstate.islast
+    label.new(chart.right_visible_bar_index - 1, high, text = "Last bar", style = label.style_label_down)

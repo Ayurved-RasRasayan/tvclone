@@ -1,0 +1,248 @@
+//@version=6
+indicator("Pro Scalper AI [BullByte]", overlay=false, dynamic_requests=true, max_labels_count=500, max_lines_count=500)
+
+//─────────────────────────────────────────────
+// 1. HELPER FUNCTION & CONFIRMED DATA
+//─────────────────────────────────────────────
+f_nr(src) => barstate.isconfirmed ? src : nz(src[1])
+
+cOpen   = f_nr(open)
+cHigh   = f_nr(high)
+cLow    = f_nr(low)
+cClose  = f_nr(close)
+cVolume = f_nr(volume)
+
+//─────────────────────────────────────────────
+// 2. INPUTS
+//─────────────────────────────────────────────
+useHTF          = input.bool(false,  "Use Higher Timeframe Trend Filter?", inline="HTF")
+htf_tf          = input.timeframe("15", "HTF", inline="HTF")
+
+adxLen          = input.int(14,  "ADX Length")
+diLen           = input.int(14,  "DI Length")
+atrLen          = input.int(14,  "ATR Length")
+hmaLen          = input.int(21,  "HMA Length")
+
+momChoice       = input.string("Stochastic RSI", "Momentum Mode", options=["Stochastic RSI","Fisher RSI","Williams %R"])
+stochRsiLen     = input.int(12, "Stoch RSI Length", group="Stoch RSI")
+stochKLen       = input.int(3,  "Stoch RSI %K Smoothing", group="Stoch RSI")
+stochDLen       = input.int(3,  "Stoch RSI %D Smoothing", group="Stoch RSI")
+fisherRsiLen    = input.int(14, "Fisher RSI Length", group="Fisher RSI")
+wprLen          = input.int(14, "Williams %R Length", group="Williams %R")
+tdiRsiLen       = input.int(13, "TDI RSI Length")
+tdiSignalLen    = input.int(7,  "TDI Signal Length")
+
+wTrend          = input.float(0.3, "Trend Weight", step=0.1)
+wMomentum       = input.float(0.3, "Momentum Weight", step=0.1)
+wVolatility     = input.float(0.2, "Volatility Weight", step=0.1)
+wVolume         = input.float(0.2, "Volume Weight", step=0.1)
+baseUpper       = input.float(25.0, "Base Upper Threshold", step=0.1)
+baseLower       = input.float(-25.0,"Base Lower Threshold", step=0.1)
+dynMultiplier   = input.float(0.5, "Dynamic Threshold Multiplier", step=0.1)
+oscLookback     = input.int(50,   "Oscillator Std Dev Lookback")
+
+useDynamicW     = input.bool(true, "Use Dynamic Weighting?")
+maxVolFactor    = input.float(2.0, "Max Volatility Factor", step=0.1)
+maxTrendFactor  = input.float(1.5, "Max Trend Factor", step=0.1)
+volLookback     = input.int(50, "Volume Lookback")
+
+useAI           = input.bool(false, "Use AI Forecast?")
+ai_length       = input.int(20, "AI Length", minval=1)
+ai_future       = input.int(2,  "AI Forecast Bars Ahead", minval=1)
+aiAdjustment    = input.float(1.5, "AI Threshold Shift", step=0.1)
+aiSmoothing     = input.bool(true, "Smooth AI Forecast?")
+
+useLatching     = input.bool(true, "Enable Latching?")
+
+//─────────────────────────────────────────────
+// 3. CALCULATIONS
+//─────────────────────────────────────────────
+
+f_tr(_high, _low, _close) =>
+    math.max(_high - _low, math.abs(_high - nz(_close[1])), math.abs(_low - nz(_close[1])))
+
+// ADX & DI
+dirmov(_len) =>
+    up   = ta.change(cHigh)
+    down = -ta.change(cLow)
+    plusDM  = na(up)   ? na : (up > down and up > 0 ? up : 0)
+    minusDM = na(down) ? na : (down > up and down > 0 ? down : 0)
+    tr = f_tr(cHigh, cLow, cClose)
+    truerange = ta.rma(tr, _len)
+    plusVal   = nz(100 * ta.rma(plusDM, _len) / truerange)
+    minusVal  = nz(100 * ta.rma(minusDM, _len) / truerange)
+    [plusVal, minusVal]
+
+[diplus, diminus] = dirmov(diLen)
+adxVal   = 100 * ta.rma(math.abs(diplus - diminus) / ((diplus + diminus)==0 ? 1 : (diplus + diminus)), adxLen)
+trendDir = diplus > diminus ? 1.0 : diminus > diplus ? -1.0 : 0.0
+normTrend = trendDir * math.min(math.max((adxVal - 20) / 20, 0.0), 1.0)
+confirmedADX       = f_nr(adxVal)
+confirmedNormTrend = f_nr(normTrend)
+
+// ATR / Volatility
+atrVal  = ta.rma(f_tr(cHigh, cLow, cClose), atrLen)
+normATR = atrVal / cClose
+confirmedNormVolatility = f_nr(normATR * 2 - 1)
+
+// Momentum
+f_tanh(_x) =>
+    e2x = math.exp(2.0 * _x)
+    (e2x - 1.0) / (e2x + 1.0)
+
+f_stochRsi(_len, _k, _d) =>
+    _rsi = ta.rsi(cClose, _len)
+    lo = ta.lowest(_rsi, _len)
+    hi = ta.highest(_rsi, _len)
+    K  = ta.sma((_rsi - lo) / math.max(hi - lo, 0.0001), _k)
+    (K - 0.5) * 2
+
+f_fisherRsi(_len) =>
+    _rsi = ta.rsi(cClose, _len)
+    norm = (_rsi / 100.0) * 2 - 1
+    clipped = math.max(math.min(norm, 0.999), -0.999)
+    f_tanh(0.5 * math.log((1 + clipped) / (1 - clipped)))
+
+f_wpr(_len) =>
+    hh = ta.highest(cHigh, _len)
+    ll = ta.lowest(cLow, _len)
+    ((hh - cClose) / math.max(hh - ll, 0.0001) * -100 + 50) / 50 - 1
+
+momentumVal = switch momChoice
+    "Stochastic RSI" => f_stochRsi(stochRsiLen, stochKLen, stochDLen)
+    "Fisher RSI"     => f_fisherRsi(fisherRsiLen)
+    "Williams %R"    => f_wpr(wprLen)
+confirmedMomentum = f_nr(momentumVal)
+
+// OBV / Volume
+var float obvVal = 0.0
+obvVal := nz(obvVal[1]) + (cClose > cClose[1] ? cVolume : cClose < cClose[1] ? -cVolume : 0)
+obvMin = ta.lowest(obvVal, volLookback)
+obvMax = ta.highest(obvVal, volLookback)
+confirmedVolumeNorm = f_nr(((obvVal - obvMin) / math.max(obvMax - obvMin, 0.0001)) * 2 - 1)
+
+// Dynamic Weighting
+volFactor   = useDynamicW ? math.min(normATR / 0.005, maxVolFactor)  : 1.0
+trendFactor = useDynamicW ? math.min(adxVal  / 25.0,  maxTrendFactor): 1.0
+effWTrend      = wTrend      * trendFactor
+effWVolatility = wVolatility * volFactor
+totalWeight    = effWTrend + wMomentum + effWVolatility + wVolume
+
+// Composite Oscillator
+oscillator = (effWTrend * confirmedNormTrend + wMomentum * confirmedMomentum + effWVolatility * confirmedNormVolatility + wVolume * confirmedVolumeNorm) / totalWeight * 100
+confirmedOscillator = f_nr(oscillator)
+oscStd        = ta.stdev(confirmedOscillator, oscLookback)
+upperThreshold  = baseUpper + oscStd * dynMultiplier
+lowerThreshold  = baseLower - oscStd * dynMultiplier
+confirmedUT     = f_nr(upperThreshold)
+confirmedLT     = f_nr(lowerThreshold)
+
+// AI Forecast
+var float aiBias = 0.0
+if useAI
+    aiVal     = ta.linreg(cClose, ai_length, 0)
+    aiSlope   = aiVal - ta.linreg(cClose, ai_length, 1)
+    aiPred    = aiSmoothing ? ta.sma(aiVal + aiSlope * ai_future, 2) : aiVal + aiSlope * ai_future
+    oscLo     = ta.lowest(confirmedOscillator, ai_length)
+    oscHi     = ta.highest(confirmedOscillator, ai_length)
+    aiLo      = ta.lowest(aiPred, ai_length)
+    aiHi      = ta.highest(aiPred, ai_length)
+    oscRange  = math.max(oscHi - oscLo, 0.001)
+    aiRange   = math.max(aiHi - aiLo,  0.001)
+    aiOsc     = ((aiPred - aiLo) / aiRange) * oscRange + oscLo
+    aiBias   := aiOsc - (baseUpper + baseLower) / 2
+confirmedAiBias = f_nr(aiBias)
+adjUT = useAI ? confirmedUT + (confirmedAiBias > 0 ?  aiAdjustment : 0) : confirmedUT
+adjLT = useAI ? confirmedLT + (confirmedAiBias < 0 ? -aiAdjustment : 0) : confirmedLT
+confirmedAdjUT = f_nr(adjUT)
+confirmedAdjLT = f_nr(adjLT)
+
+// HMA Trend
+hma(src, length) =>
+    wma1 = ta.wma(src, length)
+    wma2 = ta.wma(src, math.round(length / 2))
+    ta.wma(2 * wma2 - wma1, math.round(math.sqrt(length)))
+localHMA = hma(cClose, hmaLen)
+trendHMA = cClose > localHMA ? 1.0 : cClose < localHMA ? -1.0 : 0.0
+confirmedTrendHMA = f_nr(trendHMA)
+
+htfTrend = 0.0
+if useHTF
+    htfHMA = request.security(syminfo.tickerid, htf_tf, hma(cClose, hmaLen), lookahead=barmerge.lookahead_off)
+    htfTrend := na(htfHMA) ? 0.0 : cClose > htfHMA ? 1.0 : cClose < htfHMA ? -1.0 : 0.0
+confirmedHTFTrend = f_nr(htfTrend)
+
+//─────────────────────────────────────────────
+// 4. SIGNAL GENERATION
+//─────────────────────────────────────────────
+condSBuy  = confirmedOscillator > confirmedAdjUT and confirmedTrendHMA > 0 and (not useHTF or confirmedHTFTrend > 0) and confirmedADX > 20
+condSSell = confirmedOscillator < confirmedAdjLT and confirmedTrendHMA < 0 and (not useHTF or confirmedHTFTrend < 0) and confirmedADX > 20
+condEBuy  = confirmedOscillator > baseUpper  and confirmedOscillator < confirmedAdjUT
+condESell = confirmedOscillator < baseLower  and confirmedOscillator > confirmedAdjLT
+
+immSig = condSBuy ? "Strong Buy" : condSSell ? "Strong Sell" : condEBuy ? "Early Buy" : condESell ? "Early Sell" : "No Signal"
+
+var string storedState = "Neutral"
+if useLatching and barstate.isconfirmed
+    if storedState == "Neutral"
+        if condEBuy
+            storedState := "EarlyBuy"
+        else if condESell
+            storedState := "EarlySell"
+        else if condSBuy
+            storedState := "Long"
+        else if condSSell
+            storedState := "Short"
+    else if storedState == "EarlyBuy"
+        if condSBuy
+            storedState := "Long"
+        else if not condEBuy
+            storedState := "Neutral"
+    else if storedState == "Long"
+        if condSSell
+            storedState := "Short"
+        else if condESell
+            storedState := "EarlySell"
+    else if storedState == "EarlySell"
+        if condSSell
+            storedState := "Short"
+        else if not condESell
+            storedState := "Neutral"
+    else if storedState == "Short"
+        if condSBuy
+            storedState := "Long"
+        else if condEBuy
+            storedState := "EarlyBuy"
+
+storedSig = storedState == "Long" ? "Strong Buy" : storedState == "Short" ? "Strong Sell" : storedState == "EarlyBuy" ? "Early Buy" : storedState == "EarlySell" ? "Early Sell" : "No Signal"
+
+//─────────────────────────────────────────────
+// 5. VISUALIZATION — ONLY 4 LINES + FILL + SHAPES
+//─────────────────────────────────────────────
+
+// 4 core lines:
+// 1. Upper threshold (purple)
+plotUpper = plot(confirmedUT, color=color.purple, linewidth=1, title="Dynamic Upper Threshold")
+
+// 2. Lower threshold (purple)
+plotLower = plot(confirmedLT, color=color.purple, linewidth=1, title="Dynamic Lower Threshold")
+
+// 3. Zero line (gray)
+plotZero  = plot(0, color=color.gray, title="Zero Line")
+
+// 4. AI Bias (blue) — only if enabled
+plot(useAI ? confirmedAiBias : na, color=color.blue, title="AI Bias")
+
+// Oscillator line (green/red)
+plotOsc = plot(confirmedOscillator, color=confirmedOscillator >= 0 ? color.green : color.red, linewidth=2, title="Composite Oscillator")
+
+// Band fill between upper and lower
+activeSig = useLatching ? storedSig : immSig
+fillColor = activeSig == "Strong Buy" ? color.new(color.green, 80) : activeSig == "Strong Sell" ? color.new(color.red, 80) : activeSig == "Early Buy" ? color.new(color.lime, 80) : activeSig == "Early Sell" ? color.new(color.maroon, 80) : color.new(color.blue, 90)
+fill(plotUpper, plotLower, color=fillColor, title="Band Background")
+
+// Signal shapes
+plotshape(useLatching and storedState == "Long"  ? 0 : na, style=shape.triangleup,   color=color.green,  title="Latched Strong Buy",  location=location.bottom, size=size.tiny)
+plotshape(useLatching and storedState == "Short" ? 0 : na, style=shape.triangledown, color=color.red,    title="Latched Strong Sell", location=location.top,    size=size.tiny)
+plotshape(useLatching and storedState == "EarlyBuy"  ? 0 : na, style=shape.diamond, color=color.lime,   title="Latched Early Buy",   location=location.bottom, size=size.tiny)
+plotshape(useLatching and storedState == "EarlySell" ? 0 : na, style=shape.diamond, color=color.maroon, title="Latched Early Sell",  location=location.top,    size=size.tiny)
