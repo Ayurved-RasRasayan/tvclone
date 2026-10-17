@@ -617,8 +617,13 @@ function subSeriesCtx(c, tag, buffer, length) {
   const offset = SUB_CTX_TAGS[tag];
   if (offset === undefined) throw new PineRuntimeError(`Internal: unknown sub-context tag '${tag}'`);
   const node = { id: c.node.id * 1000 + offset };
-  // FIX B: If buffer is already a Series, use it directly. Otherwise wrap it.
-  const series = buffer instanceof Series ? buffer : new Series(buffer);
+  // If buffer is already a Series, use it directly. Otherwise wrap it.
+  // IMPORTANT: pass barCount so at(series, i) can read values. Without it,
+  // Series defaults to barCount=0 and at() returns null for every bar (this
+  // was the ta.atr "0 finite values" bug -- rma saw an empty Series).
+  const series = buffer instanceof Series
+    ? buffer
+    : new Series(buffer, c.interp ? c.interp.n : buffer.length);
   if (!(buffer instanceof Series) && c.interp) {
     series.__interp = c.interp;
     series.__slotIdx = -1;
