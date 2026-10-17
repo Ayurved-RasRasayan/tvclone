@@ -429,6 +429,24 @@ if bar_index == 5
   assertEqual(r.outputs.alerts[0].bar, 5);
 });
 
+// __entry_leg_commission_test__ commission charged on both entry and exit
+test('strategy() commission is charged on entry AND exit', () => {
+  const r = run(`
+strategy("t", commission_value=0.1, initial_capital=10000)
+if bar_index == 1
+    strategy.entry("L", strategy.long, qty=1)
+if bar_index == 5
+    strategy.close("L")
+`);
+  const trades = r.outputs.strategy.trades;
+  assertEqual(trades.length, 1);
+  const t = trades[0];
+  const expectedEntryComm = t.entryPrice * Math.abs(t.size) * 0.001;
+  const expectedExitComm = t.exitPrice * Math.abs(t.size) * 0.001;
+  const expectedTotalComm = expectedEntryComm + expectedExitComm;
+  assertClose(t.commission, expectedTotalComm, 0.01, 'commission (entry+exit)');
+});
+
 test('drawing objects: line, label, box', () => {
   const r = run(`
 if bar_index == 3

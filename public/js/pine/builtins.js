@@ -2758,6 +2758,10 @@ function doEntry(c, direction, qty) {
   const fill = direction === 'long' ? price + slip : price - slip;
   const q = Number.isFinite(qty) && qty > 0 ? qty : s.defaultQty;
   const signed = direction === 'long' ? q : -q;
+  // __entry_leg_commission__ entry-leg commission (Pine charges both legs)
+  const entryCommission = s.commission
+    ? Math.abs(signed) * fill * (s.commission / 100)
+    : 0;
 
   if (s.position.size !== 0 && Math.sign(s.position.size) !== Math.sign(signed)) {
     closePosition(c, 'reverse', price);
@@ -2768,6 +2772,8 @@ function doEntry(c, direction, qty) {
   if (prev === 0) s.position.entryBar = c.bar;
   s.position.size = newSize;
   s.position.dir = Math.sign(newSize);
+  // __entry_leg_commission__ accumulate across pyramided entries
+  s.position.entryCommission = (s.position.entryCommission || 0) + entryCommission;
   const order = {
     bar: c.bar,
     time: c.interp.bars[c.bar]?.t,
@@ -2788,7 +2794,10 @@ function closePosition(c, reason = 'close', priceOverride = null) {
   const fill = s.position.size > 0 ? price - slip : price + slip;
   const size = s.position.size;
   const gross = (fill - s.position.avgPrice) * size;
-  const commission = Math.abs(size) * fill * ((s.commission || 0) / 100);
+  // __entry_leg_commission__ total commission = entry leg + exit leg
+  const exitCommission = Math.abs(size) * fill * ((s.commission || 0) / 100);
+  const entryCommission = s.position.entryCommission || 0;
+  const commission = exitCommission + entryCommission;
   const trade = {
     entryBar: s.position.entryBar,
     exitBar: c.bar,
