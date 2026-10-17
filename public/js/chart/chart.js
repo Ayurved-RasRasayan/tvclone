@@ -2862,6 +2862,72 @@ export class Chart {
     }
   }
 
+  // __vp_modes__ Session Volume Profile  one profile per session
+  _renderSessionVp(pane, ctx) {
+    try {
+      const interval = this.interval || '1d';
+      const isIntraday = /^\d+[mh]$/.test(interval);
+      const groupKey = (t) => {
+        const d = new Date(t);
+        if (isIntraday) {
+          return d.getUTCFullYear() + '-' + d.getUTCMonth() + '-' + d.getUTCDate();
+        }
+        const w = Math.floor(d.getTime() / (7 * 86400000));
+        return 'w' + w;
+      };
+
+      const sessions = [];
+      let cur = null;
+      for (let i = 0; i < this.bars.length; i++) {
+        const k = groupKey(this.bars[i].t);
+        if (!cur || cur.key !== k) {
+          cur = { key: k, start: i, end: i, bars: [] };
+          sessions.push(cur);
+        }
+        cur.bars.push(this.bars[i]);
+        cur.end = i;
+      }
+
+      const cfg = this.volumeProfile;
+      const rows = Math.max(4, Math.min(40, cfg.rows || 15));
+
+      for (const s of sessions) {
+        if (s.bars.length < 2) continue;
+        const vp = computeVolumeProfile(s.bars, { rows, valueAreaPct: cfg.valueAreaPct ?? 0.7 });
+        if (!vp.rows.length || !Number.isFinite(vp.poc)) continue;
+        const xStart = this.xAtIndex(s.start);
+        const xEnd = this.xAtIndex(s.end);
+        if (!Number.isFinite(xStart) || !Number.isFinite(xEnd)) continue;
+        const pocY = this._y(vp.poc, pane);
+        const vahY = this._y(vp.vah, pane);
+        const valY = this._y(vp.val, pane);
+        if (!Number.isFinite(pocY)) continue;
+
+        ctx.save();
+        if (Number.isFinite(vahY) && Number.isFinite(valY)) {
+          ctx.fillStyle = 'rgba(41,98,255,0.15)';
+          ctx.fillRect(xStart, Math.min(vahY, valY), Math.max(1, xEnd - xStart), Math.abs(vahY - valY));
+        }
+        ctx.strokeStyle = '#f9c74f';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(xStart, pocY);
+        ctx.lineTo(xEnd, pocY);
+        ctx.stroke();
+        if (ctx.fillText) {
+          ctx.fillStyle = '#f9c74f';
+          ctx.font = 'bold ' + (typeof THEME !== 'undefined' && THEME.fontSmall ? THEME.fontSmall : '10px sans-serif');
+          ctx.textAlign = 'right';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText('POC', xEnd - 2, pocY - 2);
+        }
+        ctx.restore();
+      }
+    } catch (e) {
+      // Swallow shim limitations
+    }
+  }
+
   // __volume_profile__ draw volume-at-price histogram + POC line + VA shading
   _renderVolumeProfile(pane, ctx) {
     try {
@@ -2870,11 +2936,25 @@ export class Chart {
       if (!Array.isArray(this.bars) || this.bars.length === 0) return;
       if (typeof computeVolumeProfile !== 'function') return;
 
+      // __vp_modes__ session mode delegates to _renderSessionVp
+      if (cfg.mode === 'session') {
+        this._renderSessionVp(pane, ctx);
+        return;
+      }
+
+      // __vp_modes__ FRVP: restrict to [startIndex, endIndex] if given
+      let barsForProfile = this.bars;
+      if (typeof cfg.startIndex === 'number' && typeof cfg.endIndex === 'number'
+          && cfg.startIndex >= 0 && cfg.endIndex > cfg.startIndex
+          && cfg.endIndex < this.bars.length) {
+        barsForProfile = this.bars.slice(cfg.startIndex, cfg.endIndex + 1);
+      }
+
       // Cache the computed profile per bar-count so we don't recompute
       // N times per frame (the drawing loop calls this once per drawing).
-      const cacheKey = this.bars.length + ':' + (cfg.rows || 24) + ':' + (cfg.valueAreaPct ?? 0.7);
+      const cacheKey = this.bars.length + ':' + (cfg.rows || 24) + ':' + (cfg.valueAreaPct ?? 0.7) + ':' + (cfg.mode || 'full') + ':' + (cfg.startIndex ?? -1) + ':' + (cfg.endIndex ?? -1);
       if (!this._vpCache || this._vpCacheKey !== cacheKey) {
-        this._vpCache = computeVolumeProfile(this.bars, {
+        this._vpCache = computeVolumeProfile(barsForProfile, {
           rows: cfg.rows || 24,
           valueAreaPct: cfg.valueAreaPct ?? 0.7,
         });

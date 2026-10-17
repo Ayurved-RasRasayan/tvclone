@@ -84,6 +84,41 @@ test('zero-volume bars are skipped', () => {
   assert.equal(vp.totalVolume, 300);
 });
 
+// __vp_modes_test__ FRVP: bar-slice profile differs from full
+test('FRVP: computeVolumeProfile on a bar slice produces correct POC + volume', () => {
+  const bars = [
+    mkBar(100.5, 100), mkBar(101.5, 100),
+    mkBar(200.5, 1000), mkBar(201.5, 1000),
+  ];
+  const sliceVp = computeVolumeProfile(bars.slice(2, 4), { rows: 4 });
+  assert.equal(sliceVp.rows.length, 4);
+  assert(sliceVp.poc > 150);
+  assert.equal(sliceVp.totalVolume, 2000);
+});
+
+test('Session grouping: bars from different calendar days produce separate profiles', () => {
+  const day1 = 1704067200000;
+  const day2 = 1704153600000;
+  const mkDayBar = (t, price, vol) => ({ t, o: price, h: price, l: price, c: price, v: vol });
+  const bars = [
+    mkDayBar(day1, 100, 500), mkDayBar(day1, 101, 500),
+    mkDayBar(day2, 200, 800), mkDayBar(day2, 201, 800),
+  ];
+  const groups = {};
+  for (const b of bars) {
+    const d = new Date(b.t);
+    const k = d.getUTCFullYear() + '-' + d.getUTCMonth() + '-' + d.getUTCDate();
+    (groups[k] = groups[k] || []).push(b);
+  }
+  assert.equal(Object.keys(groups).length, 2);
+  for (const k of Object.keys(groups)) {
+    const vp = computeVolumeProfile(groups[k], { rows: 4 });
+    assert.equal(vp.rows.length, 4);
+    assert(vp.totalVolume > 0);
+    assert(Number.isFinite(vp.poc));
+  }
+});
+
 test('POC picks the highest volume bucket even in a 2-bar profile', () => {
   const bars = [mkBar(100.5, 100), mkBar(101.5, 900)];
   const vp = computeVolumeProfile(bars, { rows: 2, priceMin: 100, priceMax: 102 });

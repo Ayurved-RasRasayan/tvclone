@@ -2322,18 +2322,23 @@ class App {
   }
 
   // __volume_profile__ toggle the current pane's volume profile
+  // __vp_modes_app__ cycle VP: off -> full -> session -> off
   toggleVolumeProfile() {
     const chart = this.activePane?.chart;
     if (!chart) return;
-    if (!chart.volumeProfile) chart.volumeProfile = { enabled: false, rows: 24, valueAreaPct: 0.7 };
-    chart.volumeProfile.enabled = !chart.volumeProfile.enabled;
+    const vp = chart.volumeProfile || (chart.volumeProfile = { enabled: false, rows: 24, valueAreaPct: 0.7, mode: 'full' });
+    if (!vp.mode) vp.mode = 'full';
+    if (!vp.enabled) { vp.enabled = true; vp.mode = 'full'; }
+    else if (vp.mode === 'full') { vp.mode = 'session'; }
+    else { vp.enabled = false; vp.mode = 'full'; }
     chart.render();
     const btn = document.getElementById && document.getElementById('btnVolumeProfile');
     if (btn) {
       if (btn.classList) {
-        if (chart.volumeProfile.enabled) btn.classList.add && btn.classList.add('active');
+        if (vp.enabled) btn.classList.add && btn.classList.add('active');
         else btn.classList.remove && btn.classList.remove('active');
       }
+      try { btn.title = 'Volume Profile  ' + (vp.enabled ? vp.mode : 'off'); } catch {}
     }
   }
 
