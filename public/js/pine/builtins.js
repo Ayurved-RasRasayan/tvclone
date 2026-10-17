@@ -2378,7 +2378,17 @@ def('request.dividends', (c) => c.interp.dividendsAt(c.bar));
 // __real_dividends__ field constants
 def('dividends.net',   () => 'net');
 def('dividends.gross', () => 'gross');
-def('request.splits', () => NaN);
+// __real_splits__ returns split ratio field on split bars, na otherwise
+def('request.splits', (c) => {
+  const field = strv(c, c.positional[1], 'splits.numerator');
+  const split = c.interp.splitsAt(c.bar);
+  if (!split) return null;
+  if (field === 'splits.denominator') return split.denominator;
+  return split.numerator;
+});
+// __real_splits__ field constants
+def('splits.numerator',   () => 'splits.numerator');
+def('splits.denominator', () => 'splits.denominator');
 def('request.earnings', () => NaN);
 def('request.quandl', () => NaN);
 def('request.financial', () => NaN);

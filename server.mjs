@@ -202,6 +202,22 @@ function mapChart(json) {
       out.sort((a, b) => a.t - b.t);
       return out;
     })(),
+    // __splits_extracted__ extract split events for Pine request.splits
+    splits: (() => {
+      const ev = result.events?.splits;
+      if (!ev) return [];
+      const out = [];
+      for (const [tsStr, e] of Object.entries(ev)) {
+        const t = Number(tsStr) * 1000;
+        const numerator = Number(e.numerator);
+        const denominator = Number(e.denominator);
+        if (Number.isFinite(t) && Number.isFinite(numerator) && Number.isFinite(denominator)) {
+          out.push({ t, numerator, denominator });
+        }
+      }
+      out.sort((a, b) => a.t - b.t);
+      return out;
+    })(),
   };
 }
 

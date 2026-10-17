@@ -485,6 +485,29 @@ test('request.dividends returns dividend amount on ex-div bars', () => {
   assertEqual(vals[4], null, 'bar 4 no dividend');
 });
 
+// __split_test__ request.splits returns numerator/denominator on split bars
+test('request.splits returns numerator and denominator on split bars', () => {
+  const mkBar = (t) => ({ t, o: 100, h: 101, l: 99, c: 100, v: 1000 });
+  const bars = [mkBar(1000), mkBar(2000), mkBar(3000), mkBar(4000)];
+  const splits = [{ t: 3000, numerator: 4, denominator: 1 }];
+  const rNum = runPine(
+    `plot(request.splits("X", splits.numerator))`,
+    { bars, symbol: { symbol: 'X' }, meta: { splits } }
+  );
+  assert(rNum.ok, rNum.error?.message);
+  const numVals = rNum.outputs.plots[0].values;
+  assertEqual(numVals[0], null, 'bar 0 no split');
+  assertClose(numVals[2], 4, 1e-9, 'numerator at bar 2');
+
+  const rDen = runPine(
+    `plot(request.splits("X", splits.denominator))`,
+    { bars, symbol: { symbol: 'X' }, meta: { splits } }
+  );
+  assert(rDen.ok, rDen.error?.message);
+  const denVals = rDen.outputs.plots[0].values;
+  assertClose(denVals[2], 1, 1e-9, 'denominator at bar 2');
+});
+
 // __entry_leg_commission_test__ commission charged on both entry and exit
 test('strategy() commission is charged on entry AND exit', () => {
   const r = run(`
