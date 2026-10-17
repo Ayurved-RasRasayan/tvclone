@@ -19,6 +19,7 @@ const SUITES = [
   { name: 'live data', file: 'test/live.test.mjs' },
   { name: 'cloud alerts', file: 'test/cloud-alerts.test.mjs' },
   { name: 'volume profile', file: 'test/volume-profile.test.mjs' },
+  { name: 'volume delta', file: 'test/volume-delta.test.mjs' },
 ];
 
 function run(file) {

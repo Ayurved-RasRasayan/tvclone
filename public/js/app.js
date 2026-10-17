@@ -608,6 +608,14 @@ class App {
           this.toggleVolumeProfile();
         });
         chartTypeBtn.parentElement.insertBefore(vpBtn, chartTypeBtn.nextSibling);
+        const vdBtn = chartTypeBtn.cloneNode(true);
+        vdBtn.id = 'btnVolumeDelta';
+        vdBtn.title = 'Volume Delta (CVD proxy)  toggle';
+        vdBtn.addEventListener('click', (e) => {
+          if (e && e.preventDefault) e.preventDefault();
+          this.toggleVolumeDelta();
+        });
+        vpBtn.parentElement.insertBefore(vdBtn, vpBtn.nextSibling);
       }
     } catch (e) {
       // shim may not support cloneNode/insertBefore  non-fatal
@@ -2308,6 +2316,22 @@ class App {
     if (btn) {
       if (btn.classList) {
         if (chart.volumeProfile.enabled) btn.classList.add && btn.classList.add('active');
+        else btn.classList.remove && btn.classList.remove('active');
+      }
+    }
+  }
+
+  // __volume_delta__ toggle the current pane's volume delta overlay
+  toggleVolumeDelta() {
+    const chart = this.activePane?.chart;
+    if (!chart) return;
+    if (!chart.volumeDelta) chart.volumeDelta = { enabled: false, method: 'close-position', height: 60, offset: 60 };
+    chart.volumeDelta.enabled = !chart.volumeDelta.enabled;
+    chart.render();
+    const btn = document.getElementById && document.getElementById('btnVolumeDelta');
+    if (btn) {
+      if (btn.classList) {
+        if (chart.volumeDelta.enabled) btn.classList.add && btn.classList.add('active');
         else btn.classList.remove && btn.classList.remove('active');
       }
     }

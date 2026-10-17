@@ -1,4 +1,5 @@
 import { computeVolumeProfile } from './volume-profile.js'; // __volume_profile__
+import { computeDeltaSeries } from './volume-delta.js'; // __volume_delta__
 import { rangeBars, renko, lineBreak, kagi, pointFigure, autoSize } from './bar-transforms.js'; // __bar_transforms_integration__
 /**
  * Chart: a TradingView-style canvas chart with panes, crosshair, drawing tools
@@ -48,6 +49,13 @@ export class Chart {
       enabled: false,
       rows: 24,
       valueAreaPct: 0.7,
+    };
+    // __volume_delta__ state  disabled by default
+    this.volumeDelta = {
+      enabled: false,
+      method: 'close-position',
+      height: 60,
+      offset: 60,
     };
     this.showVolume = opts.showVolume !== false;
     this.showGrid = opts.showGrid !== false;
@@ -1639,6 +1647,7 @@ export class Chart {
     const Y = (p) => this._y(p, pane);
 
     this._renderVolumeProfile(pane, ctx);
+    this._renderVolumeDelta(pane, ctx);
     switch (d.type) {
       // __smc_drawings__ SMC + liquidity concept drawings
       case 'order_block_bull':
@@ -2502,6 +2511,96 @@ export class Chart {
     this.pendingDrawing = null;
     this.overlay.style.cursor = tool ? 'crosshair' : 'default';
     this.render();
+  }
+
+  // __volume_delta__ draw per-bar delta histogram + CVD line in a bottom strip
+  _renderVolumeDelta(pane, ctx) {
+    try {
+      const cfg = this.volumeDelta;
+      if (!cfg || !cfg.enabled) return;
+      if (!Array.isArray(this.bars) || this.bars.length === 0) return;
+      if (typeof computeDeltaSeries !== 'function') return;
+
+      // Cache per (barCount, method)  the drawing loop can call this per-drawing
+      const cacheKey = this.bars.length + ':' + (cfg.method || 'close-position');
+      if (!this._vdCache || this._vdCacheKey !== cacheKey) {
+        this._vdCache = computeDeltaSeries(this.bars, { method: cfg.method });
+        this._vdCacheKey = cacheKey;
+      }
+      const series = this._vdCache;
+      if (!series || !series.deltas || series.deltas.length === 0) return;
+
+      const stripH = Math.max(30, cfg.height || 60);
+      const stripBottom = this.plotHeight - (cfg.offset || 60);
+      const stripTop = stripBottom - stripH;
+      if (stripTop < 0 || stripH <= 0) return;
+      const midY = stripTop + stripH / 2;
+
+      // max |delta| for scaling
+      let maxAbs = 0;
+      for (const d of series.deltas) {
+        const a = Math.abs(d);
+        if (Number.isFinite(a) && a > maxAbs) maxAbs = a;
+      }
+      if (maxAbs <= 0) return;
+      const scale = (stripH / 2) / maxAbs;
+
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+
+      // Draw per-bar delta histogram
+      for (let i = 0; i < series.deltas.length; i++) {
+        const d = series.deltas[i];
+        if (!Number.isFinite(d) || d === 0) continue;
+        const x = this.xAtIndex(i);
+        if (!Number.isFinite(x)) continue;
+        const barH = Math.abs(d) * scale;
+        const y = d >= 0 ? midY - barH : midY;
+        ctx.fillStyle = d >= 0 ? 'rgba(38,166,154,0.75)' : 'rgba(239,83,80,0.75)';
+        ctx.fillRect(x - 2, y, 4, barH);
+      }
+
+      // Zero line
+      ctx.globalAlpha = 0.6;
+      ctx.strokeStyle = '#787b86';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, midY);
+      ctx.lineTo(this.plotWidth, midY);
+      ctx.stroke();
+
+      // CVD line
+      let cvdMin = Infinity;
+      let cvdMax = -Infinity;
+      for (const v of series.cvd) {
+        if (!Number.isFinite(v)) continue;
+        if (v < cvdMin) cvdMin = v;
+        if (v > cvdMax) cvdMax = v;
+      }
+      if (Number.isFinite(cvdMin) && Number.isFinite(cvdMax) && cvdMax > cvdMin) {
+        const cvdRange = cvdMax - cvdMin;
+        const cvdToY = (v) => stripBottom - ((v - cvdMin) / cvdRange) * stripH;
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = '#f9c74f';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        let started = false;
+        for (let i = 0; i < series.cvd.length; i++) {
+          const v = series.cvd[i];
+          if (!Number.isFinite(v)) continue;
+          const x = this.xAtIndex(i);
+          const y = cvdToY(v);
+          if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+          if (!started) { ctx.moveTo(x, y); started = true; }
+          else ctx.lineTo(x, y);
+        }
+        if (started) ctx.stroke();
+      }
+
+      ctx.restore();
+    } catch (e) {
+      // Swallow shim/canvas limitations
+    }
   }
 
   // __volume_profile__ draw volume-at-price histogram + POC line + VA shading
