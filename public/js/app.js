@@ -1244,12 +1244,22 @@ class App {
   exportCsv() {
     const chart = this.activePane?.chart;
     if (!chart?.bars?.length) return;
-    const rows = ['time,open,high,low,close,volume'];
+    const rows = ["Date,Open,High,Low,Close,Volume"];
+    const pad = (n) => String(n).padStart(2, "0");
+    const fmt = (t) => {
+      const d = new Date(t);
+      return d.getUTCFullYear() + "-" + pad(d.getUTCMonth() + 1) + "-" + pad(d.getUTCDate())
+        + " " + pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes());
+    };
     for (const b of chart.bars) {
-      rows.push(`${new Date(b.t).toISOString()},${b.o},${b.h},${b.l},${b.c},${b.v}`);
+      rows.push(fmt(b.t) + "," + b.o + "," + b.h + "," + b.l + "," + b.c + "," + b.v);
     }
-    download(`${chart.symbol}-${chart.interval}.csv`, rows.join('\n'), 'text/csv');
-    toast('CSV exported', `${chart.bars.length} bars`, 'success', 2600);
+    const safeSym = String(chart.symbol || "chart").replace(/[^A-Za-z0-9_-]+/g, "_");
+    const safeIv = String(chart.interval || "1d").replace(/[^A-Za-z0-9_-]+/g, "_");
+    const filename = safeSym + "_" + safeIv + "_" + new Date().toISOString().slice(0, 10) + ".csv";
+    const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
+    download(filename, blob, "text/csv");
+    toast("CSV exported", chart.bars.length + " bars", "success", 2600);
   }
 
   /* ---------------- indicators ---------------- */
