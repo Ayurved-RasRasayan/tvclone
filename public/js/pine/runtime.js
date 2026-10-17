@@ -1152,6 +1152,17 @@ export class Interpreter {
           if (resolved !== undefined) return resolved;
           const g = resolveGlobal(path);
           if (g !== undefined) return g;
+          // __member_builtins_fallback__ Also try BUILTINS for def('ns.a.b', ...) constants
+          // (e.g. strategy.commission.cash_per_order). Called as zero-arg builtin if
+          // it's a function, so barstate.* and similar still resolve to their values.
+          if (BUILTINS && typeof BUILTINS.get === 'function') {
+            const bv = BUILTINS.get(path);
+            if (bv !== undefined) {
+              return typeof bv === 'function'
+                ? bv({ interp: this, bar: this.bar, positional: [], named: {} })
+                : bv;
+            }
+          }
           // Unknown member of a value namespace -> na (never "undeclared identifier").
           if (VALUE_NAMESPACES.has(path.split('.')[0])) return null;
         }

@@ -2736,8 +2736,14 @@ def('strategy', (c) => {
   if (named.pyramiding !== undefined) s.pyramiding = Math.floor(num(c, named.pyramiding, 1));
   if (named.process_orders_on_close !== undefined) s.processOrdersOnClose = boolv(c, named.process_orders_on_close);
   if (named.close_entries_when !== undefined) s.closeEntriesWhen = named.close_entries_when;
+  // __commission_type_support__ commission_type support
+  if (named.commission_type !== undefined) s.commissionType = strv(c, named.commission_type, 'percent');
   return null;
 });
+// __commission_type_support__ strategy.commission.* constants
+def('strategy.commission.percent',           () => 'percent');
+def('strategy.commission.cash_per_contract', () => 'cash_per_contract');
+def('strategy.commission.cash_per_order',    () => 'cash_per_order');
 def('library', () => null);
 def('study', (c) => BUILTINS.get('indicator')(c));
 
@@ -2746,6 +2752,16 @@ export { context, withState, num, boolv, strv, colorv, barsOf, makeSubCtx };
 /* ================================================================== *
  * strategy namespace
  * ================================================================== */
+
+// __commission_type_support__ compute commission based on commission_type
+function computeCommission(s, size, fill) {
+  const cv = Number(s.commission) || 0;
+  if (cv === 0) return 0;
+  const type = s.commissionType || 'percent';
+  if (type === 'cash_per_contract') return Math.abs(size) * cv;
+  if (type === 'cash_per_order') return cv;
+  return Math.abs(size) * fill * (cv / 100);
+}
 
 function stratState(c) {
   return c.interp.outputs.strategy;
@@ -2759,9 +2775,7 @@ function doEntry(c, direction, qty) {
   const q = Number.isFinite(qty) && qty > 0 ? qty : s.defaultQty;
   const signed = direction === 'long' ? q : -q;
   // __entry_leg_commission__ entry-leg commission (Pine charges both legs)
-  const entryCommission = s.commission
-    ? Math.abs(signed) * fill * (s.commission / 100)
-    : 0;
+  const entryCommission = computeCommission(s, signed, fill);
 
   if (s.position.size !== 0 && Math.sign(s.position.size) !== Math.sign(signed)) {
     closePosition(c, 'reverse', price);
@@ -2795,7 +2809,7 @@ function closePosition(c, reason = 'close', priceOverride = null) {
   const size = s.position.size;
   const gross = (fill - s.position.avgPrice) * size;
   // __entry_leg_commission__ total commission = entry leg + exit leg
-  const exitCommission = Math.abs(size) * fill * ((s.commission || 0) / 100);
+  const exitCommission = computeCommission(s, size, fill);
   const entryCommission = s.position.entryCommission || 0;
   const commission = exitCommission + entryCommission;
   const trade = {

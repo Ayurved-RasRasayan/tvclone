@@ -429,6 +429,44 @@ if bar_index == 5
   assertEqual(r.outputs.alerts[0].bar, 5);
 });
 
+// __commission_type_tests__
+test('commission_type=cash_per_order charges flat per order', () => {
+  const r = run(`
+strategy("t", commission_type=strategy.commission.cash_per_order, commission_value=5, initial_capital=10000)
+if bar_index == 1
+    strategy.entry("L", strategy.long, qty=10)
+if bar_index == 5
+    strategy.close("L")
+`);
+  const t = r.outputs.strategy.trades[0];
+  assertClose(t.commission, 10, 0.01, 'flat per-order commission');
+});
+
+test('commission_type=cash_per_contract scales with size', () => {
+  const r = run(`
+strategy("t", commission_type=strategy.commission.cash_per_contract, commission_value=0.5, initial_capital=100000)
+if bar_index == 1
+    strategy.entry("L", strategy.long, qty=10)
+if bar_index == 5
+    strategy.close("L")
+`);
+  const t = r.outputs.strategy.trades[0];
+  assertClose(t.commission, 10, 0.01, 'per-contract commission');
+});
+
+test('commission_type=percent is the default', () => {
+  const r = run(`
+strategy("t", commission_value=0.1, initial_capital=10000)
+if bar_index == 1
+    strategy.entry("L", strategy.long, qty=1)
+if bar_index == 5
+    strategy.close("L")
+`);
+  const t = r.outputs.strategy.trades[0];
+  const expected = t.entryPrice * Math.abs(t.size) * 0.001 + t.exitPrice * Math.abs(t.size) * 0.001;
+  assertClose(t.commission, expected, 0.01, 'default percent commission');
+});
+
 // __entry_leg_commission_test__ commission charged on both entry and exit
 test('strategy() commission is charged on entry AND exit', () => {
   const r = run(`
