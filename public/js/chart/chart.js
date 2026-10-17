@@ -1,3 +1,4 @@
+import { rangeBars, renko, lineBreak, kagi, pointFigure, autoSize } from './bar-transforms.js'; // __bar_transforms_integration__
 /**
  * Chart: a TradingView-style canvas chart with panes, crosshair, drawing tools
  * and Pine Script overlays.
@@ -259,9 +260,29 @@ export class Chart {
 
   /* ---------------- data ---------------- */
 
+  // __bar_transforms_integration__ dispatch to the right transform per chartType
+  _applyBarTransform(type, rawBars) {
+    if (!Array.isArray(rawBars) || rawBars.length === 0) return rawBars || [];
+    switch (type) {
+      case 'renko':
+        return renko(rawBars, this._renkoBrickSize || autoSize(rawBars), { reversal: this._renkoReversal || 2 });
+      case 'range':
+        return rangeBars(rawBars, this._rangeSize || autoSize(rawBars));
+      case 'linebreak':
+        return lineBreak(rawBars, this._lineBreakPeriod || 3);
+      case 'kagi':
+        return kagi(rawBars, this._kagiReversal || autoSize(rawBars));
+      case 'pnf':
+        return pointFigure(rawBars, this._pnfBoxSize || autoSize(rawBars), this._pnfReversal || 3);
+      default:
+        return rawBars;
+    }
+  }
+
   setData(bars, meta = {}) {
     const previousCount = this.bars.length;
-    this.bars = bars || [];
+    this._rawBars = bars || [];
+    this.bars = this._applyBarTransform(this.chartType, this._rawBars);
     const oldSymbol = this.symbol;
     const newSymbol = meta.symbol || this.symbol || 'UNKNOWN';
     const symbolChanged = newSymbol !== oldSymbol;
@@ -303,6 +324,9 @@ export class Chart {
 
   setChartType(type) {
     this.chartType = type;
+    if (Array.isArray(this._rawBars) && this._rawBars.length > 0) {
+      this.bars = this._applyBarTransform(type, this._rawBars);
+    }
     this.render();
   }
 

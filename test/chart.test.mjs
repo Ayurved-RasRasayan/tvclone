@@ -283,6 +283,56 @@ test('crosshair renders an axis badge', () => {
   assert(chart.octx.countOf('setLineDash') >= 1, 'dashed crosshair lines drawn');
 });
 
+// __bar_transforms_tests__
+const mkTransformBars = (n) => {
+  const out = [];
+  let price = 100;
+  for (let i = 0; i < n; i++) {
+    const o = price;
+    const c = o + ((i % 4) - 1.5) * 3;
+    const h = Math.max(o, c) + 0.5;
+    const l = Math.min(o, c) - 0.5;
+    out.push({ t: 1000000 + i * 86400000, o, h, l, c, v: 1000 });
+    price = c;
+  }
+  return out;
+};
+
+test('setChartType: each price-driven type produces bars', () => {
+  const types = ['renko', 'range', 'linebreak', 'kagi', 'pnf'];
+  for (const type of types) {
+    const chart = makeChart();
+    chart.setData(mkTransformBars(200));
+    const candlesCount = chart.bars.length;
+    chart.setChartType(type);
+    assert(chart.bars.length > 0, type + ' produced bars');
+    assert(chart.bars.length !== candlesCount || type === 'linebreak',
+      type + ' should change bar count (unless linebreak found no breaks)');
+  }
+});
+
+test('setChartType: switching back to candles restores raw bar count', () => {
+  const chart = makeChart();
+  const raw = mkTransformBars(200);
+  chart.setData(raw);
+  const candlesCount = chart.bars.length;
+  chart.setChartType('renko');
+  assert(chart.bars.length !== candlesCount, 'renko changed bar count');
+  chart.setChartType('candles');
+  assertEqual(chart.bars.length, candlesCount, 'candles restored');
+});
+
+test('setData: stores _rawBars regardless of chart type', () => {
+  const chart = makeChart();
+  chart.setChartType('renko');
+  const raw = mkTransformBars(150);
+  chart.setData(raw);
+  assertEqual(chart._rawBars.length, raw.length, '_rawBars stored');
+  assert(chart.bars.length !== raw.length, 'bars are transformed');
+});
+
+// __bar_transforms_tests_end__
+
 test('drawing tool: trendline create, hit-test, drag, delete', () => {
   const chart = makeChart();
   chart.setActiveTool('trendline');
