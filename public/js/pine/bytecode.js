@@ -633,6 +633,9 @@ function _compileCall(chunk, node, sr) {
   // Fall back to AST for ta.* to ensure correctness.
   if (calleePath.startsWith('ta.')) return false;
   if (calleePath.startsWith('request.')) return false;
+  // alert/alertcondition: VM's CALL_BUILTIN_NODE drops args (see
+  // pine.test.mjs -> "alert() logs messages with bar times"). Use AST.
+  if (calleePath === 'alert' || calleePath === 'alertcondition') return false;
   // Compile args first.
   for (const a of args) {
     if (!_compileExprInto(chunk, a.node || a, sr)) return false;
