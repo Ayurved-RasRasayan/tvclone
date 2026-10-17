@@ -307,19 +307,20 @@ def('ta.bb', (c) => {
   const n = Math.max(1, len(c, c.positional[1], 20));
   const mult = num(c, c.positional[2], 2);
   const basisFn = BUILTINS.get('ta.sma');
-  return withState(c, () => {}, () => {
-    const basisCtx = { ...c, positional: [src, n] };
-    const basis = basisFn(basisCtx);
-    if (basis === null) return [null, null, null];
-    let sum = 0;
-    for (let k = 0; k < n; k++) {
-      const v = at(src, c.bar - k);
-      if (isNa(v)) return [null, null, null];
-      sum += (Number(v) - basis) ** 2;
-    }
-    const dev = Math.sqrt(sum / n);
-    return [basis + mult * dev, basis, basis - mult * dev];
-  });
+  // ta.bb is stateless. Do NOT wrap in withState -- an empty init claims
+  // the c.node.id slot, then ta.sma's withState (which inherits c.node via
+  // { ...c }) finds the slot already allocated, skips its own init, and
+  // crashes on s.queue.push() because s.queue was never set.
+  const basis = basisFn({ ...c, positional: [src, n] });
+  if (basis === null) return [null, null, null];
+  let sum = 0;
+  for (let k = 0; k < n; k++) {
+    const v = at(src, c.bar - k);
+    if (isNa(v)) return [null, null, null];
+    sum += (Number(v) - basis) ** 2;
+  }
+  const dev = Math.sqrt(sum / n);
+  return [basis + mult * dev, basis, basis - mult * dev];
 });
 
 def('ta.stdev', (c) => {
@@ -354,17 +355,16 @@ def('ta.dev', (c) => {
   const src = c.positional[0];
   const n = Math.max(1, len(c, c.positional[1], 20));
   const smaFn = BUILTINS.get('ta.sma');
-  return withState(c, () => {}, () => {
-    const m = smaFn({ ...c, positional: [src, n] });
-    if (m === null) return null;
-    let sum = 0;
-    for (let k = 0; k < n; k++) {
-      const v = at(src, c.bar - k);
-      if (isNa(v)) return null;
-      sum += Math.abs(Number(v) - m);
-    }
-    return sum / n;
-  });
+  // Same slot-collision pattern as ta.bb -- nested ta.sma owns the slot.
+  const m = smaFn({ ...c, positional: [src, n] });
+  if (m === null) return null;
+  let sum = 0;
+  for (let k = 0; k < n; k++) {
+    const v = at(src, c.bar - k);
+    if (isNa(v)) return null;
+    sum += Math.abs(Number(v) - m);
+  }
+  return sum / n;
 });
 
 def('ta.change', (c) => {
