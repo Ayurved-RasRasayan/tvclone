@@ -1649,6 +1649,265 @@ export class Chart {
     this._renderVolumeProfile(pane, ctx);
     this._renderVolumeDelta(pane, ctx);
     switch (d.type) {
+      // __drawings_phase2__ additional 2-point drawing types
+      case 'ellipse': {
+        const x1 = X(d.x1), y1 = Y(d.y1);
+        const x2 = X(d.x2 ?? d.x1), y2 = Y(d.y2 ?? d.y1);
+        const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+        const rx = Math.abs(x2 - x1) / 2, ry = Math.abs(y2 - y1) / 2;
+        const steps = 32;
+        ctx.beginPath();
+        for (let i = 0; i <= steps; i++) {
+          const a = (i / steps) * Math.PI * 2;
+          const px = cx + rx * Math.cos(a);
+          const py = cy + ry * Math.sin(a);
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        if (selected) { drawHandle(ctx, x1, y1, color); drawHandle(ctx, x2, y2, color); }
+        break;
+      }
+      case 'circle': {
+        const x1 = X(d.x1), y1 = Y(d.y1);
+        const x2 = X(d.x2 ?? d.x1), y2 = Y(d.y2 ?? d.y1);
+        const r = Math.max(2, Math.hypot(x2 - x1, y2 - y1));
+        const steps = 32;
+        ctx.beginPath();
+        for (let i = 0; i <= steps; i++) {
+          const a = (i / steps) * Math.PI * 2;
+          const px = x1 + r * Math.cos(a);
+          const py = y1 + r * Math.sin(a);
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        if (selected) { drawHandle(ctx, x1, y1, color); drawHandle(ctx, x2, y2, color); }
+        break;
+      }
+      case 'triangle': {
+        const x1 = X(d.x1), y1 = Y(d.y1);
+        const x2 = X(d.x2 ?? d.x1), y2 = Y(d.y2 ?? d.y1);
+        const cx = (x1 + x2) / 2;
+        ctx.beginPath();
+        ctx.moveTo(cx, y1);
+        ctx.lineTo(x2, y2);
+        ctx.lineTo(x1, y2);
+        ctx.lineTo(cx, y1);
+        ctx.stroke();
+        if (selected) { drawHandle(ctx, cx, y1, color); drawHandle(ctx, x1, y2, color); drawHandle(ctx, x2, y2, color); }
+        break;
+      }
+      case 'arc': {
+        const x1 = X(d.x1), y1 = Y(d.y1);
+        const x2 = X(d.x2 ?? d.x1), y2 = Y(d.y2 ?? d.y1);
+        const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+        const dx = x2 - x1, dy = y2 - y1;
+        const len = Math.hypot(dx, dy) || 1;
+        const cx = mx - (dy / len) * len * 0.3;
+        const cy = my + (dx / len) * len * 0.3;
+        // Quadratic curve as 16-segment polyline  no quadraticCurveTo needed.
+        const steps = 16;
+        ctx.beginPath();
+        for (let i = 0; i <= steps; i++) {
+          const t = i / steps;
+          const mt = 1 - t;
+          const px = mt * mt * x1 + 2 * mt * t * cx + t * t * x2;
+          const py = mt * mt * y1 + 2 * mt * t * cy + t * t * y2;
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        if (selected) { drawHandle(ctx, x1, y1, color); drawHandle(ctx, x2, y2, color); }
+        break;
+      }
+      case 'fib_extension': {
+        const x1 = X(d.x1), y1 = Y(d.y1);
+        const x2 = X(d.x2 ?? d.x1), y2 = Y(d.y2 ?? d.y1);
+        const levels = [0, 0.618, 1, 1.272, 1.618, 2, 2.618];
+        const left = Math.min(x1, x2), right = Math.max(x1, x2);
+        ctx.font = THEME.fontSmall;
+        ctx.textBaseline = 'middle';
+        for (const lv of levels) {
+          const y = y1 + (y2 - y1) * lv;
+          ctx.beginPath();
+          ctx.moveTo(left, y);
+          ctx.lineTo(right, y);
+          ctx.stroke();
+          const price = d.y1 + (d.y2 - d.y1) * lv;
+          const decimals = this.decimals ?? 2;
+          ctx.fillText((lv * 100).toFixed(1) + '% ' + price.toFixed(decimals), left + 4, y - 6);
+        }
+        if (selected) { drawHandle(ctx, x1, y1, color); drawHandle(ctx, x2, y2, color); }
+        break;
+      }
+      case 'fib_fan': {
+        const x1 = X(d.x1), y1 = Y(d.y1);
+        const x2 = X(d.x2 ?? d.x1), y2 = Y(d.y2 ?? d.y1);
+        const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+        const right = this.plotWidth;
+        ctx.font = THEME.fontSmall;
+        for (const lv of levels) {
+          const targetY = y1 + (y2 - y1) * lv;
+          const dx = x2 - x1 || 1;
+          const slope = (targetY - y1) / dx;
+          const endY = y1 + slope * (right - x1);
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(right, endY);
+          ctx.stroke();
+        }
+        if (selected) { drawHandle(ctx, x1, y1, color); drawHandle(ctx, x2, y2, color); }
+        break;
+      }
+      case 'fib_time': {
+        const x1 = X(d.x1), y1 = Y(d.y1);
+        const x2 = X(d.x2 ?? d.x1);
+        const dist = x2 - x1 || 1;
+        const levels = [0, 1, 2, 3, 5, 8, 13, 21];
+        const top = 0;
+        const bottom = this.plotHeight;
+        ctx.font = THEME.fontSmall;
+        for (const n of levels) {
+          const x = x1 + dist * n;
+          if (x < 0 || x > this.plotWidth) continue;
+          ctx.beginPath();
+          ctx.moveTo(x, top);
+          ctx.lineTo(x, bottom);
+          ctx.stroke();
+        }
+        if (selected) { drawHandle(ctx, x1, y1, color); drawHandle(ctx, x2, y1, color); }
+        break;
+      }
+      case 'long_position':
+      case 'short_position': {
+        const x1 = X(d.x1), y1 = Y(d.y1);
+        const x2 = X(d.x2 ?? d.x1), y2 = Y(d.y2 ?? d.y1);
+        const isLong = d.type === 'long_position';
+        const right = this.plotWidth;
+        const entry = y1;
+        const size = Math.abs(y2 - y1) || 20;
+        const target = isLong ? y1 - size * 2 : y1 + size * 2;
+        const stop = isLong ? y1 + size : y1 - size;
+        ctx.save();
+        ctx.fillStyle = 'rgba(38,166,154,0.20)';
+        ctx.fillRect(x1, Math.min(entry, target), right - x1, Math.abs(target - entry));
+        ctx.fillStyle = 'rgba(239,83,80,0.20)';
+        ctx.fillRect(x1, Math.min(entry, stop), right - x1, Math.abs(stop - entry));
+        ctx.strokeStyle = '#d1d4dc';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x1, entry);
+        ctx.lineTo(right, entry);
+        ctx.stroke();
+        ctx.fillStyle = '#26a69a';
+        ctx.font = 'bold ' + THEME.fontSmall;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('TP', x1 + 4, target);
+        ctx.fillStyle = '#ef5350';
+        ctx.fillText('SL', x1 + 4, stop);
+        ctx.restore();
+        if (selected) { drawHandle(ctx, x1, y1, color); drawHandle(ctx, x2, y2, color); }
+        break;
+      }
+      case 'gann_fan': {
+        const x1 = X(d.x1), y1 = Y(d.y1);
+        const x2 = X(d.x2 ?? d.x1), y2 = Y(d.y2 ?? d.y1);
+        const right = this.plotWidth;
+        const dx = x2 - x1 || 1;
+        const dy = y2 - y1;
+        const slope = dy / dx;
+        const angles = [1, 0.75, 0.5, 0.25, 0.125, -0.125, -0.25, -0.5, -0.75, -1];
+        for (const a of angles) {
+          const endY = y1 + slope * a * (right - x1);
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(right, endY);
+          ctx.stroke();
+        }
+        if (selected) { drawHandle(ctx, x1, y1, color); drawHandle(ctx, x2, y2, color); }
+        break;
+      }
+      case 'arrow_marker': {
+        const x1 = X(d.x1), y1 = Y(d.y1);
+        const x2 = X(d.x2 ?? d.x1), y2 = Y(d.y2 ?? d.y1);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+        const ang = Math.atan2(y2 - y1, x2 - x1);
+        const head = 10;
+        ctx.beginPath();
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(x2 - head * Math.cos(ang - Math.PI / 6), y2 - head * Math.sin(ang - Math.PI / 6));
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(x2 - head * Math.cos(ang + Math.PI / 6), y2 - head * Math.sin(ang + Math.PI / 6));
+        ctx.stroke();
+        if (selected) { drawHandle(ctx, x1, y1, color); drawHandle(ctx, x2, y2, color); }
+        break;
+      }
+      case 'flag': {
+        const x1 = X(d.x1), y1 = Y(d.y1);
+        const x2 = X(d.x2 ?? d.x1), y2 = Y(d.y2 ?? d.y1);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x1, y2);
+        ctx.stroke();
+        const w = Math.max(20, Math.abs(x2 - x1));
+        const h = 14;
+        ctx.save();
+        ctx.fillStyle = 'rgba(41,98,255,0.20)';
+        ctx.fillRect(x1, y2 - h / 2, w, h);
+        ctx.strokeRect(x1, y2 - h / 2, w, h);
+        ctx.restore();
+        if (selected) { drawHandle(ctx, x1, y1, color); drawHandle(ctx, x1 + w, y2, color); }
+        break;
+      }
+      case 'measure_price': {
+        const x1 = X(d.x1), y1 = Y(d.y1);
+        const y2 = Y(d.y2 ?? d.y1);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x1, y2);
+        ctx.moveTo(x1 - 5, y1);
+        ctx.lineTo(x1 + 5, y1);
+        ctx.moveTo(x1 - 5, y2);
+        ctx.lineTo(x1 + 5, y2);
+        ctx.stroke();
+        const delta = (d.y2 ?? d.y1) - d.y1;
+        const mid = (y1 + y2) / 2;
+        ctx.save();
+        ctx.fillStyle = delta >= 0 ? '#26a69a' : '#ef5350';
+        ctx.font = 'bold ' + THEME.fontSmall;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText((delta >= 0 ? '+' : '') + delta.toFixed(this.decimals ?? 2), x1 + 8, mid);
+        ctx.restore();
+        if (selected) { drawHandle(ctx, x1, y1, color); drawHandle(ctx, x1, y2, color); }
+        break;
+      }
+      case 'measure_date': {
+        const x1 = X(d.x1);
+        const x2 = X(d.x2 ?? d.x1);
+        const y1 = Y(d.y1);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y1);
+        ctx.moveTo(x1, y1 - 5);
+        ctx.lineTo(x1, y1 + 5);
+        ctx.moveTo(x2, y1 - 5);
+        ctx.lineTo(x2, y1 + 5);
+        ctx.stroke();
+        const barCount = Math.abs(Math.round((d.x2 ?? d.x1) - d.x1));
+        ctx.save();
+        ctx.fillStyle = '#d1d4dc';
+        ctx.font = 'bold ' + THEME.fontSmall;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(barCount + ' bars', (x1 + x2) / 2, y1 - 6);
+        ctx.restore();
+        if (selected) { drawHandle(ctx, x1, y1, color); drawHandle(ctx, x2, y1, color); }
+        break;
+      }
+
       // __smc_drawings__ SMC + liquidity concept drawings
       case 'order_block_bull':
       case 'order_block_bear': {
@@ -2775,7 +3034,7 @@ export class Chart {
         if (Math.abs(Y(d.y1) - y) < tol) return { kind: 'drawing', drawing: d, handle: 'p1' };
         continue;
       }
-      if (['trendline', 'arrow', 'extended', 'ray', 'rect', 'fib', 'measure', /* __smc_hit__ */ 'order_block_bull', 'order_block_bear', 'fvg_bull', 'fvg_bear', 'liquidity_high', 'liquidity_low', 'bos', 'choch', 'equal_highs', 'equal_lows', 'premium_zone', 'discount_zone'].includes(d.type)) {
+      if (['trendline', 'arrow', 'extended', 'ray', 'rect', 'fib', 'measure', /* __smc_hit__ */ 'order_block_bull', 'order_block_bear', 'fvg_bull', 'fvg_bear', 'liquidity_high', 'liquidity_low', 'bos', 'choch', 'equal_highs', 'equal_lows', 'premium_zone', 'discount_zone', /* __drawings_phase2__ */ 'ellipse', 'circle', 'triangle', 'arc', 'fib_extension', 'fib_fan', 'fib_time', 'long_position', 'short_position', 'gann_fan', 'arrow_marker', 'flag', 'measure_price', 'measure_date'].includes(d.type)) {
         if (Math.hypot(X(d.x1) - x, Y(d.y1) - y) < tol) return { kind: 'drawing', drawing: d, handle: 'p1' };
         if (Math.hypot(X(d.x2) - x, Y(d.y2) - y) < tol) return { kind: 'drawing', drawing: d, handle: 'p2' };
       }

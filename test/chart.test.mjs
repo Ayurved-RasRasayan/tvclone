@@ -363,6 +363,34 @@ test('SMC drawings: all 12 types create + render without throw', () => {
   assert(true, 'render with 12 SMC drawings completed');
 });
 
+// __drawings_phase2_test__
+test('phase2 drawings: 14 new types create + render without throw', () => {
+  const chart = makeChart();
+  chart.setData([
+    { t: 1000000, o: 100, h: 101, l: 99, c: 100.5, v: 1000 },
+    { t: 1000001, o: 100.5, h: 102, l: 100, c: 101.5, v: 1000 },
+    { t: 1000002, o: 101.5, h: 103, l: 101, c: 102.5, v: 1000 },
+    { t: 1000003, o: 102.5, h: 104, l: 102, c: 103.5, v: 1000 },
+  ]);
+  const types = [
+    'ellipse', 'circle', 'triangle', 'arc',
+    'fib_extension', 'fib_fan', 'fib_time',
+    'long_position', 'short_position',
+    'gann_fan', 'arrow_marker', 'flag',
+    'measure_price', 'measure_date',
+  ];
+  for (const type of types) {
+    chart.setActiveTool(type);
+    chart._startDrawing(100, 300);
+    chart._updatePendingDrawing(200, 200);
+    chart._finishDrawing();
+    const last = chart.drawings[chart.drawings.length - 1];
+    assertEqual(last.type, type, type + ' drawing type');
+  }
+  chart.render();
+  assert(true, 'render with 14 phase2 drawings completed');
+});
+
 test('drawing tool: trendline create, hit-test, drag, delete', () => {
   const chart = makeChart();
   chart.setActiveTool('trendline');
